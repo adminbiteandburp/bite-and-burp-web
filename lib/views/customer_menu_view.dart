@@ -125,7 +125,7 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
       if (savedOrders != null) {
         final decodedOrders = jsonDecode(savedOrders) as List<dynamic>;
         placedOrders = decodedOrders
-            .map((e) => e as Map<String, dynamic>)
+            .map((e) => Map<String, dynamic>.from(e as Map))
             .toList();
       }
     });
@@ -239,7 +239,7 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
   double get grandTotal {
     double total = 0;
     for (var order in placedOrders) {
-      total += (order['subtotal'] as double);
+      total += ((order['subtotal'] ?? 0.0) as num).toDouble();
     }
     return total;
   }
@@ -2220,9 +2220,11 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                 child: Builder(
                   builder: (context) {
                     // --- 1. Dynamic Calculations ---
-                    double subtotal = placedOrders.fold(
+                    double subtotal = placedOrders.fold<double>(
                       0.0,
-                      (sum, order) => sum + (order['subtotal'] ?? 0.0),
+                      (totalVal, order) =>
+                          totalVal +
+                          ((order['subtotal'] ?? 0.0) as num).toDouble(),
                     );
 
                     // TODO: Link these 2 variables with your App/Restaurant settings (e.g. widget.restaurant.isGstEnabled)
@@ -2647,7 +2649,7 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    "${cart.values.fold(0, (acc, qty) => acc + qty)} ITEMS",
+                                    "${cart.values.fold<int>(0, (acc, qty) => acc + qty)} ITEMS",
                                     style: TextStyle(
                                       color: Colors.white.withAlpha(200),
                                       fontSize: 11,
@@ -3011,8 +3013,11 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                           if (selectedAddOns.isNotEmpty) {
                             finalPrice += selectedAddOns
                                 .map((a) => item.addOns[a] ?? 0.0)
-                                .fold(0.0, (sum, p) => sum + p);
-                            uniqueCartKey += " + " + selectedAddOns.join(", ");
+                                .fold<double>(
+                                  0.0,
+                                  (accTotal, p) => accTotal + p,
+                                );
+                            uniqueCartKey += " + ${selectedAddOns.join(", ")}";
                           }
 
                           _updateCart(uniqueCartKey, finalPrice, 1);
