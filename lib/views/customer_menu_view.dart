@@ -875,411 +875,487 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
   }
 
   // ==========================================
-  // 1. DYNAMIC & SCROLLABLE HOME SCREEN (FIXED OVERLAP & NAME)
+  // 1. RESPONSIVE HOME SCREEN (FLOATING ICONS RESTORED & NO SCROLL)
   Widget _buildHomeScreen() {
     final Size size = MediaQuery.of(context).size;
+    // Chote phones (height < 700) par gaps aur sizes thode kam ho jayenge taaki scroll na karna pade
+    final bool isSmallScreen = size.height < 700;
 
-    return SingleChildScrollView(
-      physics: const BouncingScrollPhysics(),
-      child: Container(
-        width: double.infinity,
-        height: size.height < 750
-            ? 750
-            : size.height, // Forces minimum height to prevent overlap
-        color: const Color(0xFFF8F9FE),
-        child: Column(
-          children: [
-            // 1. TOP HEADER SECTION (Purple Wave Gradient, Rings, Logos, Text)
-            Expanded(
-              flex: 9, // Adjusted flex for breathing room
-              child: Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  Positioned(
-                    top: -10,
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    child: ClipPath(
-                      clipper: TopHeaderClipper(),
-                      child: Container(
-                        decoration: const BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [
-                              Color(0xFF8C62FF),
-                              Color(0xFFB39DDB),
-                              Color(0xFFE8E0FF),
-                            ],
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                          ),
+    return Container(
+      width: double.infinity,
+      height: size.height, // Fixed height, no scrolling
+      color: const Color(0xFFF8F9FE),
+      child: Column(
+        children: [
+          // 1. TOP HEADER SECTION (Gradient, Rings, Floating Icons, Name)
+          Expanded(
+            flex: 11,
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Positioned(
+                  top: -10,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: ClipPath(
+                    clipper: TopHeaderClipper(),
+                    child: Container(
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            Color(0xFF8C62FF),
+                            Color(0xFFB39DDB),
+                            Color(0xFFE8E0FF),
+                          ],
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
                         ),
                       ),
                     ),
                   ),
-                  SafeArea(
-                    bottom: false,
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const SizedBox(height: 10),
-                        // Concentric rings stack (Reduced Size to prevent overlap)
-                        Center(
-                          child: SizedBox(
-                            width: 180,
-                            height: 140,
-                            child: Stack(
-                              clipBehavior: Clip.none,
-                              children: [
-                                Center(
-                                  child: Container(
-                                    width: 140,
-                                    height: 140,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      border: Border.all(
-                                        color: Colors.white.withAlpha(40),
-                                        width: 1.5,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                Center(
-                                  child: Container(
-                                    width: 100,
-                                    height: 100,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      border: Border.all(
-                                        color: Colors.white.withAlpha(60),
-                                        width: 2.0,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                Center(
-                                  child: Container(
-                                    width: 75,
-                                    height: 75,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: Colors.white,
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: Colors.black.withAlpha(25),
-                                          blurRadius: 15,
-                                          offset: const Offset(0, 6),
-                                        ),
-                                      ],
-                                    ),
-                                    child: const Center(
-                                      child: Icon(
-                                        Icons.restaurant_rounded,
-                                        color: Color(0xFF673AB7),
-                                        size: 35,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 15),
-                        Text(
-                          "— WELCOME TO —",
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
-                            color: const Color(0xFF673AB7).withAlpha(200),
-                            letterSpacing: 1.5,
-                          ),
-                        ),
-                        const SizedBox(height: 5),
-
-                        // 🌟 DYNAMIC HOTEL NAME FROM FIRESTORE
-                        StreamBuilder<DocumentSnapshot>(
-                          stream: FirebaseFirestore.instance
-                              .collection('restaurants')
-                              .doc(widget.hotelId)
-                              .snapshots(),
-                          builder: (context, snapshot) {
-                            String displayName = widget.hotelId.isEmpty
-                                ? "Bite & Burp"
-                                : widget.hotelId;
-                            if (snapshot.hasData && snapshot.data!.exists) {
-                              final data =
-                                  snapshot.data!.data()
-                                      as Map<String, dynamic>?;
-                              if (data != null) {
-                                displayName =
-                                    data['restaurant_name'] ??
-                                    data['website_display_name'] ??
-                                    displayName;
-                              }
-                            }
-                            return Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 20,
-                              ),
-                              child: Text(
-                                displayName,
-                                textAlign: TextAlign.center,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 28,
-                                  fontWeight: FontWeight.w900,
-                                  color: Color(0xFF1A1B2F),
-                                  letterSpacing: -0.5,
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-
-                        const SizedBox(height: 4),
-                        Text(
-                          "Delicious moments, made for you!",
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.grey.shade600,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // 2. BOTTOM DETAILS CARD SECTION
-            Expanded(
-              flex: 11,
-              child: SafeArea(
-                top: false,
-                bottom: true,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 10, 20, 12),
+                ),
+                SafeArea(
+                  bottom: false,
                   child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 24,
-                          vertical: 16,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(30),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withAlpha(10),
-                              blurRadius: 20,
-                              offset: const Offset(0, 10),
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Expanded(
-                                  child: Container(
-                                    height: 1,
-                                    color: Colors.grey.shade200,
-                                  ),
-                                ),
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                  ),
-                                  child: Text(
-                                    "YOUR TABLE DETAILS",
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w800,
-                                      color: Colors.grey.shade500,
-                                      letterSpacing: 1,
+                      SizedBox(height: isSmallScreen ? 0 : 10),
+                      // Concentric rings & Floating Icons
+                      Center(
+                        child: SizedBox(
+                          width: 220,
+                          height: 160,
+                          child: Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              // Rings
+                              Center(
+                                child: Container(
+                                  width: 160,
+                                  height: 160,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: Colors.white.withAlpha(40),
+                                      width: 1.5,
                                     ),
                                   ),
                                 ),
-                                Expanded(
-                                  child: Container(
-                                    height: 1,
-                                    color: Colors.grey.shade200,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 15),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 20,
-                                vertical: 8,
                               ),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF673AB7).withAlpha(15),
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(
-                                    Icons.table_restaurant_rounded,
-                                    color: Color(0xFF673AB7),
-                                    size: 18,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  // Cleaned up Table ID display
-                                  Text(
-                                    widget.tableId.length > 5
-                                        ? "Table Validated"
-                                        : "Table ${widget.tableId.replaceAll('table_', '').replaceAll('t', '')}",
-                                    style: const TextStyle(
-                                      color: Color(0xFF673AB7),
-                                      fontWeight: FontWeight.w900,
-                                      fontSize: 14,
+                              Center(
+                                child: Container(
+                                  width: 120,
+                                  height: 120,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: Colors.white.withAlpha(60),
+                                      width: 2.0,
                                     ),
                                   ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 20),
-                            CustomPaint(
-                              size: const Size(double.infinity, 1),
-                              painter: DashedLinePainter(
-                                color: Colors.grey.shade300,
-                              ),
-                            ),
-                            const SizedBox(height: 20),
-                            SizedBox(
-                              width: double.infinity,
-                              height: 50,
-                              child: ElevatedButton(
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF673AB7),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(16),
-                                  ),
-                                  elevation: 5,
                                 ),
-                                onPressed: () => setState(() {
-                                  currentStep = 1;
-                                  _currentIndex = 1;
-                                }),
-                                child: const Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Icon(
-                                      Icons.restaurant_menu_rounded,
-                                      color: Colors.white,
-                                      size: 20,
-                                    ),
-                                    Text(
-                                      "Explore Menu",
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w900,
-                                        fontSize: 16,
+                              ),
+                              Center(
+                                child: Container(
+                                  width: 80,
+                                  height: 80,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: Colors.white,
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withAlpha(25),
+                                        blurRadius: 15,
+                                        offset: const Offset(0, 6),
                                       ),
-                                    ),
-                                    Icon(
-                                      Icons.chevron_right_rounded,
-                                      color: Colors.white,
-                                      size: 20,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            SizedBox(
-                              width: double.infinity,
-                              height: 50,
-                              child: OutlinedButton(
-                                style: OutlinedButton.styleFrom(
-                                  side: const BorderSide(
-                                    color: Color(0xFF673AB7),
-                                    width: 1.5,
+                                    ],
                                   ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(16),
-                                  ),
-                                ),
-                                onPressed: () =>
-                                    setState(() => currentStep = 4),
-                                child: const Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Icon(
-                                      Icons.star_rounded,
+                                  child: const Center(
+                                    child: Icon(
+                                      Icons.restaurant_rounded,
                                       color: Color(0xFF673AB7),
-                                      size: 20,
+                                      size: 38,
                                     ),
-                                    Text(
-                                      "Rate Experience",
-                                      style: TextStyle(
-                                        color: Color(0xFF673AB7),
-                                        fontWeight: FontWeight.w900,
-                                        fontSize: 16,
-                                      ),
-                                    ),
-                                    Icon(
-                                      Icons.chevron_right_rounded,
-                                      color: Color(0xFF673AB7),
-                                      size: 20,
-                                    ),
-                                  ],
+                                  ),
                                 ),
                               ),
-                            ),
-                            const SizedBox(height: 15),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                                vertical: 6,
+                              // 🌟 FLOATING ICONS RESTORED WITH ANIMATIONS 🌟
+                              Positioned(
+                                left: 0,
+                                top: 0,
+                                child:
+                                    _buildFloatingIcon(
+                                          icon: Icons.lunch_dining_rounded,
+                                          size: 36,
+                                        )
+                                        .animate(
+                                          onPlay: (c) =>
+                                              c.repeat(reverse: true),
+                                        )
+                                        .moveY(
+                                          begin: -4,
+                                          end: 4,
+                                          duration: 2200.ms,
+                                          curve: Curves.easeInOut,
+                                        ),
                               ),
-                              decoration: BoxDecoration(
-                                color: Colors.grey.shade100,
-                                borderRadius: BorderRadius.circular(12),
+                              Positioned(
+                                right: 0,
+                                top: 10,
+                                child:
+                                    _buildFloatingIcon(
+                                          icon: Icons.local_cafe_rounded,
+                                          size: 36,
+                                        )
+                                        .animate(
+                                          onPlay: (c) =>
+                                              c.repeat(reverse: true),
+                                        )
+                                        .moveY(
+                                          begin: -3,
+                                          end: 3,
+                                          duration: 2600.ms,
+                                          curve: Curves.easeInOut,
+                                        ),
                               ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(
-                                    Icons.verified_user_rounded,
-                                    color: Color(0xFF673AB7),
-                                    size: 14,
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    "Secure • Fast • Contactless",
-                                    style: TextStyle(
-                                      color: Colors.grey.shade600,
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                ],
+                              Positioned(
+                                left: 10,
+                                bottom: 5,
+                                child:
+                                    _buildFloatingIcon(
+                                          icon: Icons.local_pizza_rounded,
+                                          size: 36,
+                                        )
+                                        .animate(
+                                          onPlay: (c) =>
+                                              c.repeat(reverse: true),
+                                        )
+                                        .moveY(
+                                          begin: -5,
+                                          end: 5,
+                                          duration: 2400.ms,
+                                          curve: Curves.easeInOut,
+                                        ),
                               ),
-                            ),
-                          ],
+                              Positioned(
+                                right: 5,
+                                bottom: 10,
+                                child:
+                                    _buildFloatingIcon(
+                                          icon: Icons.room_service_rounded,
+                                          size: 36,
+                                        )
+                                        .animate(
+                                          onPlay: (c) =>
+                                              c.repeat(reverse: true),
+                                        )
+                                        .moveY(
+                                          begin: -2,
+                                          end: 2,
+                                          duration: 2800.ms,
+                                          curve: Curves.easeInOut,
+                                        ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
+                      SizedBox(height: isSmallScreen ? 10 : 15),
+                      Text(
+                        "— WELCOME TO —",
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          color: const Color(0xFF673AB7).withAlpha(200),
+                          letterSpacing: 1.5,
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+
+                      // 🌟 DYNAMIC HOTEL NAME FETCHING 🌟
+                      StreamBuilder<DocumentSnapshot>(
+                        stream: FirebaseFirestore.instance
+                            .collection('restaurants')
+                            .doc(widget.hotelId)
+                            .snapshots(),
+                        builder: (context, snapshot) {
+                          String displayName = widget.hotelId.isEmpty
+                              ? "Bite & Burp"
+                              : widget.hotelId;
+                          if (snapshot.hasData && snapshot.data!.exists) {
+                            final data =
+                                snapshot.data!.data() as Map<String, dynamic>?;
+                            if (data != null) {
+                              displayName =
+                                  data['restaurant_name'] ??
+                                  data['website_display_name'] ??
+                                  displayName;
+                            }
+                          }
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 20),
+                            child: Text(
+                              displayName,
+                              textAlign: TextAlign.center,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 28,
+                                fontWeight: FontWeight.w900,
+                                color: Color(0xFF1A1B2F),
+                                letterSpacing: -0.5,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+
+                      const SizedBox(height: 4),
+                      Text(
+                        "Delicious moments, made for you!",
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                      SizedBox(height: isSmallScreen ? 5 : 10),
                     ],
                   ),
                 ),
+              ],
+            ),
+          ),
+
+          // 2. BOTTOM DETAILS CARD SECTION
+          Expanded(
+            flex: 10,
+            child: SafeArea(
+              top: false,
+              bottom: true,
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  20,
+                  isSmallScreen ? 5 : 10,
+                  20,
+                  isSmallScreen ? 5 : 12,
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      width: double.infinity,
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: isSmallScreen ? 12 : 16,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(30),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withAlpha(10),
+                            blurRadius: 20,
+                            offset: const Offset(0, 10),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Expanded(
+                                child: Container(
+                                  height: 1,
+                                  color: Colors.grey.shade200,
+                                ),
+                              ),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                ),
+                                child: Text(
+                                  "YOUR TABLE DETAILS",
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w800,
+                                    color: Colors.grey.shade500,
+                                    letterSpacing: 1,
+                                  ),
+                                ),
+                              ),
+                              Expanded(
+                                child: Container(
+                                  height: 1,
+                                  color: Colors.grey.shade200,
+                                ),
+                              ),
+                            ],
+                          ),
+                          SizedBox(height: isSmallScreen ? 10 : 15),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 20,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF673AB7).withAlpha(15),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.table_restaurant_rounded,
+                                  color: Color(0xFF673AB7),
+                                  size: 18,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  widget.tableId.length > 5
+                                      ? "Table Validated"
+                                      : "Table ${widget.tableId.replaceAll('table_', '').replaceAll('t', '')}",
+                                  style: const TextStyle(
+                                    color: Color(0xFF673AB7),
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          SizedBox(height: isSmallScreen ? 10 : 15),
+                          CustomPaint(
+                            size: const Size(double.infinity, 1),
+                            painter: DashedLinePainter(
+                              color: Colors.grey.shade300,
+                            ),
+                          ),
+                          SizedBox(height: isSmallScreen ? 10 : 15),
+                          SizedBox(
+                            width: double.infinity,
+                            height: isSmallScreen ? 45 : 50,
+                            child: ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF673AB7),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                elevation: 5,
+                              ),
+                              onPressed: () => setState(() {
+                                currentStep = 1;
+                                _currentIndex = 1;
+                              }),
+                              child: const Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Icon(
+                                    Icons.restaurant_menu_rounded,
+                                    color: Colors.white,
+                                    size: 20,
+                                  ),
+                                  Text(
+                                    "Explore Menu",
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w900,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                  Icon(
+                                    Icons.chevron_right_rounded,
+                                    color: Colors.white,
+                                    size: 20,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          SizedBox(height: isSmallScreen ? 8 : 12),
+                          SizedBox(
+                            width: double.infinity,
+                            height: isSmallScreen ? 45 : 50,
+                            child: OutlinedButton(
+                              style: OutlinedButton.styleFrom(
+                                side: const BorderSide(
+                                  color: Color(0xFF673AB7),
+                                  width: 1.5,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                              ),
+                              onPressed: () => setState(() => currentStep = 4),
+                              child: const Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Icon(
+                                    Icons.star_rounded,
+                                    color: Color(0xFF673AB7),
+                                    size: 20,
+                                  ),
+                                  Text(
+                                    "Rate Experience",
+                                    style: TextStyle(
+                                      color: Color(0xFF673AB7),
+                                      fontWeight: FontWeight.w900,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                  Icon(
+                                    Icons.chevron_right_rounded,
+                                    color: Color(0xFF673AB7),
+                                    size: 20,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          SizedBox(height: isSmallScreen ? 10 : 15),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade100,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.verified_user_rounded,
+                                  color: Color(0xFF673AB7),
+                                  size: 14,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  "Secure • Fast • Contactless",
+                                  style: TextStyle(
+                                    color: Colors.grey.shade600,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
