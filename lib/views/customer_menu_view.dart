@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class CustomerMenuView extends StatefulWidget {
   final String hotelId;
@@ -24,6 +26,133 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
   int currentStep = 0; // 0=Home, 4=ReviewPage, 1,2,3 for tabs
   String selectedCategory = "All";
   String searchQuery = "";
+  String? selectedVariant;
+  List<String> selectedAddOns = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSessionData();
+    _fetchLiveMenu(); // 🌟 Bridge Connect: Live data fetch start
+  }
+
+  // 🌟 FETCH LIVE MENU FROM FIRESTORE
+  void _fetchLiveMenu() {
+    FirebaseFirestore.instance
+        .collection('restaurants')
+        .doc(widget.hotelId) // Same ID matching the App
+        .collection('products') // App schema matched
+        .snapshots()
+        .listen((snapshot) {
+          if (!mounted) return;
+
+          List<MenuItem> fetchedItems = [];
+
+          for (var doc in snapshot.docs) {
+            var data = doc.data();
+
+            // Safely parsing variants and addons to avoid type errors
+            Map<String, double> parsedVariants = {};
+            if (data['variants'] != null) {
+              (data['variants'] as Map).forEach(
+                (k, v) => parsedVariants[k.toString()] = (v as num).toDouble(),
+              );
+            }
+
+            Map<String, double> parsedAddons = {};
+            if (data['addons'] != null) {
+              (data['addons'] as Map).forEach(
+                (k, v) => parsedAddons[k.toString()] = (v as num).toDouble(),
+              );
+            }
+
+            fetchedItems.add(
+              MenuItem(
+                id: doc.id,
+                name: data['name'] ?? 'Unknown Item',
+                price: (data['price'] ?? 0).toDouble(),
+                description: data['description'] ?? '',
+                calories: data['calories'] ?? '',
+                weight: data['weight'] ?? '',
+                isVeg:
+                    data['dietaryPref'] !=
+                    'Non-Veg', // Mapping dietary preference from App
+                category: data['categoryId'] ?? 'Others',
+                variants: parsedVariants,
+                addOns: parsedAddons,
+              ),
+            );
+          }
+
+          setState(() {
+            dummyItems = fetchedItems; // UI Live update ho jayega
+          });
+        });
+  }
+
+  // 💾 SAVING LOGIC: Call this inside every setState that changes cart/orders
+  Future<void> _saveSessionData() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('cart_${widget.tableId}', jsonEncode(cart));
+    await prefs.setString(
+      'itemPrices_${widget.tableId}',
+      jsonEncode(itemPrices),
+    );
+    await prefs.setString(
+      'placedOrders_${widget.tableId}',
+      jsonEncode(placedOrders),
+    );
+  }
+
+  // 💾 LOADING LOGIC: Restores data if browser refreshes
+  Future<void> _loadSessionData() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedCart = prefs.getString('cart_${widget.tableId}');
+    final savedPrices = prefs.getString('itemPrices_${widget.tableId}');
+    final savedOrders = prefs.getString('placedOrders_${widget.tableId}');
+
+    setState(() {
+      if (savedCart != null) {
+        final decodedMap = jsonDecode(savedCart) as Map<String, dynamic>;
+        cart = decodedMap.map((key, value) => MapEntry(key, value as int));
+      }
+      if (savedPrices != null) {
+        final decodedPrices = jsonDecode(savedPrices) as Map<String, dynamic>;
+        itemPrices = decodedPrices.map(
+          (key, value) => MapEntry(key, (value as num).toDouble()),
+        );
+      }
+      if (savedOrders != null) {
+        final decodedOrders = jsonDecode(savedOrders) as List<dynamic>;
+        placedOrders = decodedOrders
+            .map((e) => e as Map<String, dynamic>)
+            .toList();
+      }
+    });
+  }
+
+  // 🌟 LIVE MENU DATA LIST
+  List<MenuItem> dummyItems =
+      []; // Ab yeh khali rahega aur Firestore se dynamically bharega
+
+  List<String> get dynamicCategories {
+    final Set<String> cats = {"All"};
+    for (var item in dummyItems) {
+      cats.add(item.category);
+    }
+    return cats.toList();
+  }
+
+  List<MenuItem> get filteredDummyItems {
+    return dummyItems.where((item) {
+      final matchesCategory =
+          selectedCategory == "All" || item.category == selectedCategory;
+      final matchesSearch = item.name.toLowerCase().contains(
+        searchQuery.toLowerCase(),
+      );
+      return matchesCategory && matchesSearch;
+    }).toList();
+  }
 
   // 🌟 DUMMY MENU DATA
   final List<Map<String, dynamic>> dummyCategories = [
@@ -94,11 +223,7 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
   bool billRequested = false;
   bool isPlacingOrder = false;
 
-  // 🌟 BACKGROUND ANIMATION VARIABLES
-  List<Map<String, dynamic>> _bgItems = [];
-  bool _bgInitialized = false;
-  bool _isScattered = false;
-  Offset _tapPosition = Offset.zero;
+  // (Background animation variables removed to prevent unused_field warnings)
 
   // 🌟 AI REVIEW SYSTEM
   int selectedStars = 0;
@@ -135,6 +260,7 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
         showNoteField.putIfAbsent(itemName, () => false);
       }
     });
+    _saveSessionData(); // 🔥 Instantly saves to local storage
   }
 
   // 🌟 REAL AI REVIEW GENERATOR (500+ Combinations)
@@ -222,25 +348,38 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
 
     Map<String, int> safeItems = Map<String, int>.from(cart);
 
-    // Push exactly matching schema expected by POS App MenuProvider
-    await FirebaseFirestore.instance
-        .collection('restaurants')
-        .doc(widget.hotelId)
-        .collection('live_orders')
-        .add({
-          'tableId': widget.tableId,
-          'tableName': 'Table ${widget.tableId}',
-          'totalAmount': cartTotal,
-          'items': safeItems,
-          'time': DateTime.now().toIso8601String(),
-        });
+    try {
+      // Push exactly matching schema expected by POS App MenuProvider
+      await FirebaseFirestore.instance
+          .collection('restaurants')
+          .doc(widget.hotelId)
+          .collection('live_orders')
+          .add({
+            'tableId': widget.tableId,
+            'tableName': 'Table ${widget.tableId}',
+            'totalAmount': cartTotal,
+            'items': safeItems,
+            'time': DateTime.now().toIso8601String(),
+          });
+    } catch (e) {
+      debugPrint("Firebase sync issue, continuing locally: $e");
+    }
 
     setState(() {
+      placedOrders.add({
+        'orderId': '#${placedOrders.length + 1}',
+        'items': safeItems,
+        'status': 'Sent to Kitchen',
+        'subtotal': cartTotal,
+      });
       cart.clear();
       itemNotes.clear();
-      showNoteField.clear();
-      overallNote = "";
-      showOverallNote = false;
+    });
+    await _saveSessionData(); // 🔥 Instantly saves after placing order
+    showNoteField.clear();
+    overallNote = "";
+    showOverallNote = false;
+    setState(() {
       isPlacingOrder = false;
       billRequested = false; // Reset bill status for new order
       currentStep = 2; // Move to Orders
@@ -403,36 +542,31 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                                         ),
                                       ),
                                     ),
-                                    // Premium Plus Minus Box in Cart
+                                    // Premium Plus Minus Box in Cart (Compact)
                                     Container(
-                                      height: 34,
+                                      height:
+                                          30, // Height reduced for sleekness
                                       decoration: BoxDecoration(
                                         color: Colors.white,
-                                        borderRadius: BorderRadius.circular(17),
+                                        borderRadius: BorderRadius.circular(15),
                                         border: Border.all(
                                           color: Colors.deepPurple.withAlpha(
                                             50,
                                           ),
                                         ),
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: Colors.black.withAlpha(5),
-                                            blurRadius: 5,
-                                            offset: const Offset(0, 2),
-                                          ),
-                                        ],
+                                        // Shadow removed for clean flat SaaS look
                                       ),
                                       child: Row(
                                         children: [
                                           IconButton(
                                             icon: const Icon(
                                               Icons.remove,
-                                              size: 18,
+                                              size: 16, // Smaller icon
                                               color: Colors.deepPurple,
                                             ),
                                             padding: EdgeInsets.zero,
                                             constraints: const BoxConstraints(
-                                              minWidth: 35,
+                                              minWidth: 28, // Compact width
                                             ),
                                             onPressed: () {
                                               _updateCart(itemName, price, -1);
@@ -445,18 +579,18 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                                             "$qty",
                                             style: const TextStyle(
                                               fontWeight: FontWeight.w900,
-                                              fontSize: 15,
+                                              fontSize: 14,
                                             ),
                                           ),
                                           IconButton(
                                             icon: const Icon(
                                               Icons.add,
-                                              size: 18,
+                                              size: 16, // Smaller icon
                                               color: Colors.deepPurple,
                                             ),
                                             padding: EdgeInsets.zero,
                                             constraints: const BoxConstraints(
-                                              minWidth: 35,
+                                              minWidth: 28, // Compact width
                                             ),
                                             onPressed: () {
                                               _updateCart(itemName, price, 1);
@@ -466,15 +600,16 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                                         ],
                                       ),
                                     ),
-                                    const SizedBox(width: 15),
+                                    const SizedBox(width: 10), // Reduced gap
                                     SizedBox(
-                                      width: 70,
+                                      width:
+                                          55, // Reduced width so Item Name gets more space
                                       child: Text(
                                         "₹${price * qty}",
                                         textAlign: TextAlign.right,
                                         style: const TextStyle(
                                           fontWeight: FontWeight.w900,
-                                          fontSize: 16,
+                                          fontSize: 15,
                                           color: Colors.deepPurple,
                                         ),
                                       ),
@@ -488,21 +623,28 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                                       () => showNoteField[itemName] = true,
                                     ),
                                     child: Padding(
-                                      padding: const EdgeInsets.only(top: 8),
+                                      padding: const EdgeInsets.only(
+                                        top: 6,
+                                      ), // Slightly tighter padding
                                       child: Row(
                                         children: [
                                           Icon(
                                             Icons.edit_note,
-                                            size: 16,
-                                            color: Colors.deepPurple.shade300,
+                                            size: 15, // Sleeker icon
+                                            color: Colors
+                                                .grey
+                                                .shade600, // Minimal premium color
                                           ),
                                           const SizedBox(width: 4),
                                           Text(
                                             "Add note",
                                             style: TextStyle(
-                                              color: Colors.deepPurple.shade300,
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 13,
+                                              color: Colors
+                                                  .grey
+                                                  .shade700, // Subtle text color
+                                              fontWeight: FontWeight.w600,
+                                              fontSize:
+                                                  12, // Smaller font to not fight with item name
                                             ),
                                           ),
                                         ],
@@ -734,274 +876,525 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
 
   // ==========================================
   // 1. INTERACTIVE FULL-SCREEN 3D WATER RIPPLE BACKGROUND (FIXED)
-  // ==========================================
   Widget _buildHomeScreen() {
     final Size size = MediaQuery.of(context).size;
 
-    // Ek hi baar random positions generate karenge taki elements puri screen par faile rahein
-    if (!_bgInitialized && size.width > 0) {
-      final random = Random();
-      final icons = [
-        Icons.fastfood_rounded,
-        Icons.local_pizza_rounded,
-        Icons.local_cafe_rounded,
-        Icons.icecream_rounded,
-        Icons.ramen_dining_rounded,
-        Icons.bakery_dining_rounded,
-        Icons.lunch_dining_rounded,
-        Icons.set_meal_rounded,
-        Icons.cake_rounded,
-        Icons.local_bar_rounded,
-        Icons.egg_alt_rounded,
-        Icons.brunch_dining_rounded,
-        Icons.wine_bar_rounded,
-        Icons.tapas_rounded,
-        Icons.soup_kitchen_rounded,
-      ];
-      final colors = [
-        Colors.deepPurple,
-        Colors.orange,
-        Colors.brown,
-        Colors.pinkAccent,
-        Colors.redAccent,
-        Colors.amber,
-        Colors.green,
-        Colors.blue,
-        Colors.purpleAccent,
-        Colors.indigo,
-        Colors.teal,
-      ];
-
-      // 40 items add kar rahe hain full screen ke liye
-      for (int i = 0; i < 40; i++) {
-        _bgItems.add({
-          'icon': icons[random.nextInt(icons.length)],
-          'color': colors[random.nextInt(colors.length)],
-          'size': 20.0 + random.nextDouble() * 25.0, // 20 se 45 ki size
-          'x': random.nextDouble(), // 0.0 se 1.0 (Puri screen ki width)
-          'y': random.nextDouble(), // 0.0 se 1.0 (Puri screen ki height)
-          'dx': (random.nextDouble() - 0.5) * 30, // Idle float speed X
-          'dy': (random.nextDouble() - 0.5) * 30, // Idle float speed Y
-          'rot': (random.nextDouble() - 0.5) * 0.6, // Rotation speed
-          'dur': 2000 + random.nextInt(3000), // Random animation duration
-        });
-      }
-      _bgInitialized = true;
-    }
-
-    return Listener(
-      behavior: HitTestBehavior
-          .translucent, // Screen pe kahin bhi touch detect karega
-      onPointerDown: (event) {
-        setState(() {
-          _tapPosition = event.localPosition;
-          _isScattered = true;
-        });
-      },
-      onPointerUp: (event) => setState(() => _isScattered = false),
-      onPointerCancel: (event) => setState(() => _isScattered = false),
-      child: Stack(
+    return Container(
+      width: double.infinity,
+      height: size.height,
+      color: const Color(
+        0xFFF8F9FE,
+      ), // Light background tone matching the screenshot
+      child: Column(
         children: [
-          // 🌟 SCATTERING BACKGROUND ELEMENTS
-          ..._bgItems.map((item) {
-            // Screen ke hisaab se normal position
-            double normalX = item['x'] * size.width;
-            double normalY = item['y'] * size.height;
-
-            double targetX = normalX;
-            double targetY = normalY;
-
-            // Jab tap ho, to elements touch point se door hat jayein (Water effect)
-            if (_isScattered) {
-              double dx = normalX - _tapPosition.dx;
-              double dy = normalY - _tapPosition.dy;
-              double distance = sqrt(dx * dx + dy * dy);
-
-              if (distance < 1) distance = 1;
-              if (distance < 350) {
-                // Sirf 350px radius wale elements hatenge
-                double pushStrength = (350 - distance) * 1.2;
-                targetX += (dx / distance) * pushStrength;
-                targetY += (dy / distance) * pushStrength;
-              }
-            }
-
-            // Safe parsing to fix the dynamic extension error
-            int durationMs = item['dur'] as int;
-            double moveDy = item['dy'] as double;
-            double moveDx = item['dx'] as double;
-            double rotSpeed = item['rot'] as double;
-
-            return AnimatedPositioned(
-              duration: const Duration(milliseconds: 600),
-              curve: Curves.easeOutBack, // Tap chhodne pe mast bounce back hoga
-              top: targetY,
-              left: targetX,
-              child:
-                  Icon(
-                        item['icon'],
-                        size: item['size'],
-                        color: item['color'].withOpacity(
-                          0.25,
-                        ), // Ache se dikhne ke liye 0.25 opacity
-                      )
-                      // Ye continuous 3D floating effect ke liye hai
-                      .animate(
-                        onPlay: (controller) =>
-                            controller.repeat(reverse: true),
-                      )
-                      .moveY(
-                        begin: 0,
-                        end: moveDy,
-                        duration: Duration(milliseconds: durationMs),
-                        curve: Curves.easeInOut,
-                      )
-                      .moveX(
-                        begin: 0,
-                        end: moveDx,
-                        duration: Duration(milliseconds: durationMs + 500),
-                        curve: Curves.easeInOut,
-                      )
-                      .rotate(
-                        begin: 0,
-                        end: rotSpeed,
-                        duration: Duration(
-                          milliseconds: (durationMs * 1.5).toInt(),
-                        ),
-                      ),
-            );
-          }).toList(),
-
-          // 🌟 MAIN HOME CONTENT (Uske upar)
-          Center(
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 30),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    height: 120,
-                    width: 120,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.white,
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.deepPurple.withAlpha(20),
-                          blurRadius: 40,
-                          spreadRadius: 10,
-                        ),
-                      ],
-                    ),
-                    child: ClipOval(
-                      child: Image.asset(
-                        'assets/images/logo.png',
-                        fit: BoxFit.cover,
-                        errorBuilder: (c, e, s) => const Icon(
-                          Icons.storefront,
-                          size: 50,
-                          color: Colors.deepPurple,
+          // 1. TOP HEADER SECTION (Purple Wave Gradient, Rings, Logos, Text)
+          Expanded(
+            flex: 10,
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                // Wave Gradient Background
+                Positioned(
+                  top:
+                      -10, // Bleeds off top edge to cover status bar completely
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: ClipPath(
+                    clipper: TopHeaderClipper(),
+                    child: Container(
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            Color(0xFF8C62FF), // Vibrant violet-purple
+                            Color(0xFFB39DDB), // Soft lavender
+                            Color(0xFFE8E0FF), // Light transition tone
+                          ],
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
                         ),
                       ),
                     ),
-                  ).animate().scale(
-                    duration: 600.ms,
-                    curve: Curves.easeOutBack,
                   ),
-                  const SizedBox(height: 25),
-                  Text(
-                    widget.hotelId.isEmpty ? "Hotel Grand" : widget.hotelId,
-                    style: const TextStyle(
-                      fontSize: 30,
-                      fontWeight: FontWeight.w900,
-                      color: Colors.black87,
-                      letterSpacing: -1,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 15,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.deepPurple.withAlpha(15),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      "TABLE ${widget.tableId}",
-                      style: const TextStyle(
-                        color: Colors.deepPurple,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 12,
-                        letterSpacing: 1,
+                ),
+
+                // Concentric rings & Floating Icons
+                SafeArea(
+                  bottom: false,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const SizedBox(height: 5),
+                      // Concentric rings stack
+                      Center(
+                        child: SizedBox(
+                          width: 240,
+                          height: 180,
+                          child: Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              // Concentric Ring 1 (Outer)
+                              Center(
+                                child: Container(
+                                  width: 180,
+                                  height: 180,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.15,
+                                      ),
+                                      width: 1.5,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              // Concentric Ring 2
+                              Center(
+                                child: Container(
+                                  width: 140,
+                                  height: 140,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.25,
+                                      ),
+                                      width: 2.0,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              // Concentric Ring 3 (Inner White solid circle with logo)
+                              Center(
+                                child: Container(
+                                  width: 96,
+                                  height: 96,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: Colors.white,
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withValues(
+                                          alpha: 0.1,
+                                        ),
+                                        blurRadius: 15,
+                                        offset: const Offset(0, 6),
+                                      ),
+                                    ],
+                                  ),
+                                  child: const Center(
+                                    child: Icon(
+                                      Icons.restaurant_rounded,
+                                      color: Color(0xFF673AB7),
+                                      size: 44,
+                                    ),
+                                  ),
+                                ),
+                              ),
+
+                              // Floating Food Icons (Burger, Cafe, Pizza, Service)
+                              Positioned(
+                                left: 5,
+                                top: 5,
+                                child:
+                                    _buildFloatingIcon(
+                                          icon: Icons.lunch_dining_rounded,
+                                          size: 40,
+                                        )
+                                        .animate(
+                                          onPlay: (controller) =>
+                                              controller.repeat(reverse: true),
+                                        )
+                                        .moveY(
+                                          begin: -4,
+                                          end: 4,
+                                          duration: 2200.ms,
+                                          curve: Curves.easeInOut,
+                                        ),
+                              ),
+                              Positioned(
+                                right: 5,
+                                top: 10,
+                                child:
+                                    _buildFloatingIcon(
+                                          icon: Icons.local_cafe_rounded,
+                                          size: 40,
+                                        )
+                                        .animate(
+                                          onPlay: (controller) =>
+                                              controller.repeat(reverse: true),
+                                        )
+                                        .moveY(
+                                          begin: -3,
+                                          end: 3,
+                                          duration: 2600.ms,
+                                          curve: Curves.easeInOut,
+                                        ),
+                              ),
+                              Positioned(
+                                left: 12,
+                                bottom: 10,
+                                child:
+                                    _buildFloatingIcon(
+                                          icon: Icons.local_pizza_rounded,
+                                          size: 40,
+                                        )
+                                        .animate(
+                                          onPlay: (controller) =>
+                                              controller.repeat(reverse: true),
+                                        )
+                                        .moveY(
+                                          begin: -5,
+                                          end: 5,
+                                          duration: 2400.ms,
+                                          curve: Curves.easeInOut,
+                                        ),
+                              ),
+                              Positioned(
+                                right: 8,
+                                bottom: 12,
+                                child:
+                                    _buildFloatingIcon(
+                                          icon: Icons.room_service_rounded,
+                                          size: 40,
+                                        )
+                                        .animate(
+                                          onPlay: (controller) =>
+                                              controller.repeat(reverse: true),
+                                        )
+                                        .moveY(
+                                          begin: -2,
+                                          end: 2,
+                                          duration: 2800.ms,
+                                          curve: Curves.easeInOut,
+                                        ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-                  const SizedBox(height: 60),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 65,
-                    child: ElevatedButton.icon(
-                      onPressed: () => setState(() {
-                        currentStep = 1;
-                        _currentIndex = 1;
-                      }),
-                      icon: const Icon(
-                        Icons.restaurant_menu_rounded,
-                        color: Colors.white,
-                        size: 22,
-                      ),
-                      label: const Text(
-                        "Explore Menu",
+
+                      // Welcome Texts under concentric circles
+                      const SizedBox(height: 4),
+                      Text(
+                        "— WELCOME TO —",
                         style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w900,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                          color: const Color(0xFF673AB7).withValues(alpha: 0.8),
+                          letterSpacing: 1.5,
                         ),
                       ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.deepPurple,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(20),
+                      const SizedBox(height: 4),
+                      const Text(
+                        "Bite & Burp",
+                        style: TextStyle(
+                          fontSize: 32,
+                          fontWeight: FontWeight.w900,
+                          color: Color(0xFF1A1B2F),
+                          letterSpacing: -1,
                         ),
-                        elevation: 0,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        "Delicious moments, made for you!",
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      // Divider line with heart: — ♥ —
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Container(
+                            width: 30,
+                            height: 1,
+                            color: Colors.grey.shade300,
+                          ),
+                          const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 8),
+                            child: Icon(
+                              Icons.favorite_rounded,
+                              color: Color(0xFF673AB7),
+                              size: 12,
+                            ),
+                          ),
+                          Container(
+                            width: 30,
+                            height: 1,
+                            color: Colors.grey.shade300,
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // 2. BOTTOM DETAILS CARD SECTION
+          Expanded(
+            flex: 12,
+            child: SafeArea(
+              top: false,
+              bottom: true,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                child: Column(
+                  children: [
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 16,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(30),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.04),
+                            blurRadius: 20,
+                            offset: const Offset(0, 10),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // Title: YOUR TABLE DETAILS
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Expanded(
+                                child: Container(
+                                  height: 1,
+                                  color: Colors.grey.shade200,
+                                ),
+                              ),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                ),
+                                child: Text(
+                                  "YOUR TABLE DETAILS",
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w800,
+                                    color: Colors.grey.shade500,
+                                    letterSpacing: 1,
+                                  ),
+                                ),
+                              ),
+                              Expanded(
+                                child: Container(
+                                  height: 1,
+                                  color: Colors.grey.shade200,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+
+                          // Table Identifier Pill
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 20,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(
+                                0xFF673AB7,
+                              ).withValues(alpha: 0.06),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.table_restaurant_rounded,
+                                  color: Color(0xFF673AB7),
+                                  size: 16,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  widget.tableId == ':tableId' ||
+                                          widget.tableId == 'tableId'
+                                      ? "Table tableId"
+                                      : "Table ${widget.tableId.replaceAll('table_', '').replaceAll('t', '')}",
+                                  style: const TextStyle(
+                                    color: Color(0xFF673AB7),
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+
+                          // Dashed Separator Line
+                          CustomPaint(
+                            size: const Size(double.infinity, 1),
+                            painter: DashedLinePainter(
+                              color: Colors.grey.shade300,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+
+                          // Explore Menu Button
+                          SizedBox(
+                            width: double.infinity,
+                            height: 48,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF673AB7),
+                                borderRadius: BorderRadius.circular(16),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: const Color(
+                                      0xFF673AB7,
+                                    ).withValues(alpha: 0.25),
+                                    blurRadius: 10,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
+                              ),
+                              child: ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.transparent,
+                                  shadowColor: Colors.transparent,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                ),
+                                onPressed: () => setState(() {
+                                  currentStep = 1;
+                                  _currentIndex = 1;
+                                }),
+                                child: const Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Icon(
+                                      Icons.restaurant_menu_rounded,
+                                      color: Colors.white,
+                                      size: 20,
+                                    ),
+                                    Text(
+                                      "Explore Menu",
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w900,
+                                        fontSize: 15,
+                                      ),
+                                    ),
+                                    Icon(
+                                      Icons.chevron_right_rounded,
+                                      color: Colors.white,
+                                      size: 20,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+
+                          // Rate Experience Button
+                          SizedBox(
+                            width: double.infinity,
+                            height: 48,
+                            child: OutlinedButton(
+                              style: OutlinedButton.styleFrom(
+                                side: const BorderSide(
+                                  color: Color(0xFF673AB7),
+                                  width: 1.5,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                              ),
+                              onPressed: () => setState(() => currentStep = 4),
+                              child: const Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Icon(
+                                    Icons.star_rounded,
+                                    color: Color(0xFF673AB7),
+                                    size: 20,
+                                  ),
+                                  Text(
+                                    "Rate Experience",
+                                    style: TextStyle(
+                                      color: Color(0xFF673AB7),
+                                      fontWeight: FontWeight.w900,
+                                      fontSize: 15,
+                                    ),
+                                  ),
+                                  Icon(
+                                    Icons.chevron_right_rounded,
+                                    color: Color(0xFF673AB7),
+                                    size: 20,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+
+                          // Secure Badge
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade100,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.verified_user_rounded,
+                                  color: Color(0xFF673AB7),
+                                  size: 14,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  "Secure • Fast • Contactless",
+                                  style: TextStyle(
+                                    color: Colors.grey.shade600,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                  ).animate().fadeIn(duration: 500.ms).slideY(begin: 0.2),
-                  const SizedBox(height: 20),
-                  SizedBox(
-                        width: double.infinity,
-                        height: 65,
-                        child: ElevatedButton.icon(
-                          onPressed: () => setState(() => currentStep = 4),
-                          icon: const Icon(
-                            Icons.star_outline_rounded,
-                            color: Colors.white,
-                            size: 22,
-                          ),
-                          label: const Text(
-                            "Rate Experience",
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 18,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.black87,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            elevation: 0,
-                          ),
-                        ),
-                      )
-                      .animate()
-                      .fadeIn(duration: 500.ms, delay: 100.ms)
-                      .slideY(begin: 0.2),
-                ],
+                    const SizedBox(height: 30),
+                    // Footer Copyright Text
+                    Text(
+                      "© 2024 Bite & Burp. All rights reserved.",
+                      style: TextStyle(
+                        color: Colors.grey.shade400,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                  ],
+                ),
               ),
             ),
           ),
@@ -1121,59 +1514,62 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
   // 2. COMPACT PREMIUM MENU
   // ==========================================
   Widget _buildMenuTab() {
-    List<Map<String, dynamic>> filteredMenu = dummyMenu.where((item) {
-      bool matchesCategory =
-          selectedCategory == "All" || item['category'] == selectedCategory;
-      bool matchesSearch = item['name'].toLowerCase().contains(
-        searchQuery.toLowerCase(),
-      );
-      return matchesCategory && matchesSearch;
-    }).toList();
+    final List<String> categories = dynamicCategories;
+    final List<MenuItem> filteredItems = filteredDummyItems;
+
+    // Dynamically update itemPrices map for the cart logic to keep working
+    for (var item in dummyItems) {
+      itemPrices[item.name] = item.price;
+    }
 
     return Column(
       children: [
+        // 1. Search Bar
         Padding(
-          padding: const EdgeInsets.fromLTRB(15, 10, 15, 5),
+          padding: const EdgeInsets.fromLTRB(15, 10, 15, 10),
           child: Container(
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(15),
+              borderRadius: BorderRadius.circular(30),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withAlpha(10),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
+                  color: Colors.black.withValues(alpha: 0.04),
+                  blurRadius: 15,
+                  offset: const Offset(0, 5),
                 ),
               ],
             ),
             child: TextField(
               onChanged: (val) => setState(() => searchQuery = val),
               decoration: InputDecoration(
-                hintText: "Search for food...",
-                prefixIcon: const Icon(Icons.search, color: Colors.black54),
+                hintText: "Search for food, drinks...",
+                prefixIcon: const Icon(Icons.search, color: Colors.deepPurple),
                 filled: true,
                 fillColor: Colors.transparent,
-                contentPadding: const EdgeInsets.symmetric(vertical: 15),
+                contentPadding: const EdgeInsets.symmetric(
+                  vertical: 15,
+                  horizontal: 20,
+                ),
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(15),
+                  borderRadius: BorderRadius.circular(30),
                   borderSide: BorderSide.none,
                 ),
               ),
             ),
           ),
         ),
+
+        // 2. Category Selector
         SizedBox(
-          height: 60,
+          height: 50,
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            itemCount: dummyCategories.length,
+            padding: const EdgeInsets.symmetric(horizontal: 15),
+            itemCount: categories.length,
             itemBuilder: (ctx, i) {
-              bool isSelected = selectedCategory == dummyCategories[i]['name'];
+              bool isSelected = selectedCategory == categories[i];
               return GestureDetector(
-                onTap: () => setState(
-                  () => selectedCategory = dummyCategories[i]['name'],
-                ),
+                onTap: () => setState(() => selectedCategory = categories[i]),
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 200),
                   margin: const EdgeInsets.symmetric(
@@ -1187,10 +1583,19 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                     border: Border.all(
                       color: isSelected ? Colors.deepPurple : Colors.black12,
                     ),
+                    boxShadow: isSelected
+                        ? [
+                            BoxShadow(
+                              color: Colors.deepPurple.withValues(alpha: 0.25),
+                              blurRadius: 8,
+                              offset: const Offset(0, 3),
+                            ),
+                          ]
+                        : null,
                   ),
                   alignment: Alignment.center,
                   child: Text(
-                    dummyCategories[i]['name'],
+                    categories[i],
                     style: TextStyle(
                       fontWeight: FontWeight.w800,
                       fontSize: 13,
@@ -1202,8 +1607,10 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
             },
           ),
         ),
+
+        // 3. Items List
         Expanded(
-          child: filteredMenu.isEmpty
+          child: filteredItems.isEmpty
               ? const Center(
                   child: Text(
                     "No items found",
@@ -1217,247 +1624,355 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                     bottom: cartTotal > 0 ? 100 : 20,
                   ),
                   physics: const BouncingScrollPhysics(),
-                  itemCount: filteredMenu.length,
+                  itemCount: filteredItems.length,
                   itemBuilder: (ctx, i) {
-                    var item = filteredMenu[i];
-                    int qty = cart[item['name']] ?? 0;
-                    bool isVeg = item['type'] == 'veg';
+                    final item = filteredItems[i];
+                    final int qty = cart[item.name] ?? 0;
 
                     return Container(
-                          margin: const EdgeInsets.only(bottom: 15),
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(
-                              color: Colors.black.withAlpha(10),
-                            ),
+                      margin: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 5, // Vertical margin aur kam kiya
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ), // Padding thodi tight ki
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(
+                          10,
+                        ), // Corners ko sharp (rectangular) kiya
+                        border: Border.all(
+                          color: Colors.black.withValues(alpha: 0.03),
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.04),
+                            blurRadius: 15,
+                            spreadRadius: 1,
+                            offset: const Offset(0, 5),
                           ),
-                          child: Row(
-                            children: [
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(12),
-                                child: Image.network(
-                                  item['img'],
-                                  width: 85,
-                                  height: 85,
-                                  fit: BoxFit.cover,
-                                ),
-                              ),
-                              const SizedBox(width: 15),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
+                        ],
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // ----------------------------------------
+                          // 1. LEFT SIDE: DETAILS (Expanded)
+                          Expanded(
+                            child: Builder(
+                              builder: (context) {
+                                bool isExpanded =
+                                    false; // Local state for dropdown
+                                return StatefulBuilder(
+                                  builder: (context, setLocalState) {
+                                    return Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
-                                        // 🌟 Premium Veg/Non-Veg Indicator
-                                        Container(
-                                          width: 14,
-                                          height: 14,
-                                          decoration: BoxDecoration(
-                                            border: Border.all(
-                                              color: isVeg
-                                                  ? Colors.green
-                                                  : Colors.red,
-                                              width: 1.5,
+                                        Row(
+                                          children: [
+                                            // Veg/Non-veg indicator
+                                            Container(
+                                              width: 14,
+                                              height: 14,
+                                              decoration: BoxDecoration(
+                                                border: Border.all(
+                                                  color: item.isVeg
+                                                      ? Colors.green
+                                                      : Colors.red,
+                                                  width: 1.5,
+                                                ),
+                                                borderRadius:
+                                                    BorderRadius.circular(4),
+                                              ),
+                                              child: Center(
+                                                child: Icon(
+                                                  Icons.circle,
+                                                  size: 6,
+                                                  color: item.isVeg
+                                                      ? Colors.green
+                                                      : Colors.red,
+                                                ),
+                                              ),
                                             ),
-                                            borderRadius: BorderRadius.circular(
-                                              3,
-                                            ),
-                                          ),
-                                          child: Center(
-                                            child: Icon(
-                                              Icons.circle,
-                                              size: 6,
-                                              color: isVeg
-                                                  ? Colors.green
-                                                  : Colors.red,
-                                            ),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 5),
-                                        Expanded(
-                                          child: Text(
-                                            item['name'],
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.w900,
-                                              fontSize: 15,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      "₹${item['price']}",
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w900,
-                                        color: Colors.deepPurple,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    // 🌟 Added Description space here
-                                    Text(
-                                      item['desc'],
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        fontSize: 11,
-                                        color: Colors.black54,
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 6),
-                                    Row(
-                                      children: [
-                                        const Icon(
-                                          Icons.local_fire_department_rounded,
-                                          size: 12,
-                                          color: Colors.orange,
-                                        ),
-                                        Text(
-                                          " ${item['calories']}",
-                                          style: const TextStyle(
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.black38,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 10),
-                                        const Icon(
-                                          Icons.scale_rounded,
-                                          size: 12,
-                                          color: Colors.blue,
-                                        ),
-                                        Text(
-                                          " ${item['weight']}",
-                                          style: const TextStyle(
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.black38,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(width: 5),
-                              qty == 0
-                                  ? // 🌟 Premium ADD button
-                                    InkWell(
-                                      onTap: () => _updateCart(
-                                        item['name'],
-                                        item['price'],
-                                        1,
-                                      ),
-                                      borderRadius: BorderRadius.circular(20),
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 22,
-                                          vertical: 8,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          gradient: const LinearGradient(
-                                            colors: [
-                                              Colors.deepPurple,
-                                              Colors.purpleAccent,
-                                            ],
-                                          ),
-                                          borderRadius: BorderRadius.circular(
-                                            20,
-                                          ),
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color: Colors.deepPurple
-                                                  .withAlpha(60),
-                                              blurRadius: 8,
-                                              offset: const Offset(0, 4),
+                                            const SizedBox(width: 6),
+                                            Expanded(
+                                              child: Text(
+                                                item.name,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.w900,
+                                                  fontSize: 15,
+                                                  color: Color(0xFF1A1B2F),
+                                                ),
+                                              ),
                                             ),
                                           ],
                                         ),
-                                        child: const Text(
-                                          "ADD",
-                                          style: TextStyle(
-                                            color: Colors.white,
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          "₹${item.price.toStringAsFixed(0)}",
+                                          style: const TextStyle(
                                             fontWeight: FontWeight.w900,
-                                            fontSize: 12,
+                                            fontSize: 14,
+                                            color: Colors.deepPurple,
                                           ),
                                         ),
-                                      ),
-                                    )
-                                  : // 🌟 Premium +/- Button
-                                    Container(
-                                      decoration: BoxDecoration(
-                                        color: Colors.white,
-                                        borderRadius: BorderRadius.circular(20),
-                                        border: Border.all(
-                                          color: Colors.deepPurple.withAlpha(
-                                            50,
-                                          ),
-                                        ),
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: Colors.black.withAlpha(10),
-                                            blurRadius: 8,
-                                            offset: const Offset(0, 4),
-                                          ),
-                                        ],
-                                      ),
-                                      child: Row(
-                                        children: [
-                                          IconButton(
-                                            icon: const Icon(
-                                              Icons.remove,
-                                              color: Colors.deepPurple,
-                                              size: 16,
-                                            ),
-                                            padding: EdgeInsets.zero,
-                                            constraints: const BoxConstraints(
-                                              minWidth: 32,
-                                            ),
-                                            onPressed: () => _updateCart(
-                                              item['name'],
-                                              item['price'],
-                                              -1,
-                                            ),
-                                          ),
+
+                                        // Description (Conditional)
+                                        if (item.description != null &&
+                                            item.description!.isNotEmpty) ...[
+                                          const SizedBox(height: 6),
                                           Text(
-                                            "$qty",
-                                            style: const TextStyle(
-                                              color: Colors.black87,
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 14,
-                                            ),
-                                          ),
-                                          IconButton(
-                                            icon: const Icon(
-                                              Icons.add,
-                                              color: Colors.deepPurple,
-                                              size: 16,
-                                            ),
-                                            padding: EdgeInsets.zero,
-                                            constraints: const BoxConstraints(
-                                              minWidth: 32,
-                                            ),
-                                            onPressed: () => _updateCart(
-                                              item['name'],
-                                              item['price'],
-                                              1,
+                                            item.description!,
+                                            maxLines: isExpanded
+                                                ? null
+                                                : 1, // 1 line if hidden, full if expanded
+                                            overflow: isExpanded
+                                                ? TextOverflow.visible
+                                                : TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              color: Colors.grey.shade600,
+                                              fontWeight: FontWeight.w500,
                                             ),
                                           ),
                                         ],
-                                      ),
-                                    ),
-                            ],
+
+                                        // Calories & Weight Row (Conditional - Hidden by default)
+                                        if (isExpanded &&
+                                            ((item.calories != null &&
+                                                    item
+                                                        .calories!
+                                                        .isNotEmpty) ||
+                                                (item.weight != null &&
+                                                    item
+                                                        .weight!
+                                                        .isNotEmpty))) ...[
+                                          const SizedBox(height: 8),
+                                          Row(
+                                            children: [
+                                              if (item.calories != null &&
+                                                  item
+                                                      .calories!
+                                                      .isNotEmpty) ...[
+                                                const Icon(
+                                                  Icons
+                                                      .local_fire_department_rounded,
+                                                  size: 12,
+                                                  color: Colors.orange,
+                                                ),
+                                                const SizedBox(width: 2),
+                                                Text(
+                                                  item.calories!,
+                                                  style: const TextStyle(
+                                                    fontSize: 10,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: Colors.black38,
+                                                  ),
+                                                ),
+                                                if (item.weight != null &&
+                                                    item.weight!.isNotEmpty)
+                                                  const SizedBox(width: 10),
+                                              ],
+                                              if (item.weight != null &&
+                                                  item.weight!.isNotEmpty) ...[
+                                                const Icon(
+                                                  Icons.scale_rounded,
+                                                  size: 12,
+                                                  color: Colors.blue,
+                                                ),
+                                                const SizedBox(width: 2),
+                                                Text(
+                                                  item.weight!,
+                                                  style: const TextStyle(
+                                                    fontSize: 10,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: Colors.black38,
+                                                  ),
+                                                ),
+                                              ],
+                                            ],
+                                          ),
+                                        ],
+
+                                        // Read More / Read Less Toggle
+                                        if ((item.description != null &&
+                                                item.description!.isNotEmpty) ||
+                                            (item.calories != null &&
+                                                item.calories!.isNotEmpty) ||
+                                            (item.weight != null &&
+                                                item.weight!.isNotEmpty)) ...[
+                                          const SizedBox(height: 4),
+                                          GestureDetector(
+                                            onTap: () {
+                                              setLocalState(() {
+                                                isExpanded = !isExpanded;
+                                              });
+                                            },
+                                            child: Text(
+                                              isExpanded
+                                                  ? "Read less"
+                                                  : "Read more...",
+                                              style: const TextStyle(
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.bold,
+                                                color: Colors.deepPurple,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    );
+                                  },
+                                );
+                              },
+                            ),
                           ),
-                        )
-                        .animate()
-                        .fadeIn(delay: Duration(milliseconds: i * 50))
-                        .slideY(begin: 0.1);
+                          const SizedBox(width: 12),
+
+                          // ----------------------------------------
+                          // 2. RIGHT SIDE: IMAGE & OVERLAPPING BUTTON (Stack)
+                          // ----------------------------------------
+                          SizedBox(
+                            width: 95,
+                            height:
+                                95, // Height kam ki taaki card overall patla ho jaye
+                            child: Stack(
+                              clipBehavior: Clip.none,
+                              children: [
+                                // Top Layer: Image
+                                Positioned(
+                                  top: 0,
+                                  left: 5,
+                                  right: 5,
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(16),
+                                    child: getSmartIcon(item.name),
+                                  ),
+                                ),
+                                // Bottom Layer: Overlapping ADD / Qty Button
+                                Positioned(
+                                  bottom: 0,
+                                  left: 0,
+                                  right: 0,
+                                  child: Center(
+                                    child: qty == 0
+                                        ? // Premium ADD Button
+                                          InkWell(
+                                            onTap: () {
+                                              if (item.variants.isNotEmpty ||
+                                                  item.addOns.isNotEmpty) {
+                                                showVariantsPopup(item);
+                                              } else {
+                                                _updateCart(
+                                                  item.name,
+                                                  item.price,
+                                                  1,
+                                                );
+                                              }
+                                            },
+                                            borderRadius: BorderRadius.circular(
+                                              20,
+                                            ),
+                                            child: Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 22,
+                                                    vertical: 8,
+                                                  ),
+                                              decoration: BoxDecoration(
+                                                color: Colors.white,
+                                                border: Border.all(
+                                                  color: Colors.deepPurple,
+                                                  width: 1.2,
+                                                ),
+                                                borderRadius: BorderRadius.circular(
+                                                  8, // Pill shape se cornered rectangle banaya
+                                                ),
+                                              ),
+                                              child: const Text(
+                                                "ADD",
+                                                style: TextStyle(
+                                                  color: Colors
+                                                      .deepPurple, // Purple text instead of white
+                                                  fontWeight: FontWeight.w900,
+                                                  fontSize: 12,
+                                                ),
+                                              ),
+                                            ),
+                                          )
+                                        : // Premium +/- Button
+                                          Container(
+                                            decoration: BoxDecoration(
+                                              color: Colors.white,
+                                              borderRadius: BorderRadius.circular(
+                                                8,
+                                              ), // Pill shape se cornered rectangle banaya
+                                              border: Border.all(
+                                                color: Colors.deepPurple
+                                                    .withValues(alpha: 0.3),
+                                              ),
+                                            ),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                IconButton(
+                                                  icon: const Icon(
+                                                    Icons.remove,
+                                                    color: Colors.deepPurple,
+                                                    size: 16,
+                                                  ),
+                                                  padding: EdgeInsets.zero,
+                                                  constraints:
+                                                      const BoxConstraints(
+                                                        minWidth: 28,
+                                                      ),
+                                                  onPressed: () => _updateCart(
+                                                    item.name,
+                                                    item.price,
+                                                    -1,
+                                                  ),
+                                                ),
+                                                Text(
+                                                  "$qty",
+                                                  style: const TextStyle(
+                                                    color: Colors.black87,
+                                                    fontWeight: FontWeight.bold,
+                                                    fontSize: 14,
+                                                  ),
+                                                ),
+                                                IconButton(
+                                                  icon: const Icon(
+                                                    Icons.add,
+                                                    color: Colors.deepPurple,
+                                                    size: 16,
+                                                  ),
+                                                  padding: EdgeInsets.zero,
+                                                  constraints:
+                                                      const BoxConstraints(
+                                                        minWidth: 28,
+                                                      ),
+                                                  onPressed: () => _updateCart(
+                                                    item.name,
+                                                    item.price,
+                                                    1,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ).animate().fadeIn(delay: Duration(milliseconds: i * 50)).slideY(begin: 0.1);
                   },
                 ),
         ),
@@ -1529,7 +2044,9 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
       itemCount: placedOrders.length,
       itemBuilder: (ctx, i) {
         var order = placedOrders[i];
-        Map<String, int> items = order['items'];
+        Map<String, int> items = Map<String, int>.from(
+          order['items'] ?? {},
+        ); // Properly formatted and safely casted
         return Container(
           margin: const EdgeInsets.only(bottom: 20),
           padding: const EdgeInsets.all(24),
@@ -1684,83 +2201,211 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
       padding: const EdgeInsets.all(20),
       child: Column(
         children: [
-          Container(
-            padding: const EdgeInsets.all(30),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(30),
-              border: Border.all(color: Colors.black.withAlpha(15)),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withAlpha(10),
-                  blurRadius: 30,
-                  offset: const Offset(0, 10),
-                ),
-              ],
-            ),
-            child: Column(
-              children: [
-                const Icon(
-                  Icons.receipt_long_rounded,
-                  color: Colors.deepPurple,
-                  size: 40,
-                ),
-                const SizedBox(height: 15),
-                const Text(
-                  "Bill Summary",
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.w900,
-                    color: Colors.black87,
-                  ),
-                ),
-                const SizedBox(height: 30),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      "Total Orders Placed",
-                      style: TextStyle(
-                        color: Colors.black54,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    Text(
-                      "${placedOrders.length}",
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w900,
-                        fontSize: 18,
-                      ),
+          Expanded(
+            child: SingleChildScrollView(
+              child: Container(
+                padding: const EdgeInsets.all(30),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(30),
+                  border: Border.all(color: Colors.black.withAlpha(15)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withAlpha(10),
+                      blurRadius: 30,
+                      offset: const Offset(0, 10),
                     ),
                   ],
                 ),
-                const Divider(height: 40, color: Colors.black12),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      "Grand Total",
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w900,
-                        color: Colors.black87,
-                      ),
-                    ),
-                    Text(
-                      "₹$grandTotal",
-                      style: const TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.w900,
-                        color: Colors.deepPurple,
-                      ),
-                    ),
-                  ],
+                child: Builder(
+                  builder: (context) {
+                    // --- 1. Dynamic Calculations ---
+                    double subtotal = placedOrders.fold(
+                      0.0,
+                      (sum, order) => sum + (order['subtotal'] ?? 0.0),
+                    );
+
+                    // TODO: Link these 2 variables with your App/Restaurant settings (e.g. widget.restaurant.isGstEnabled)
+                    bool isGstEnabled = true;
+                    double gstPercentage = 5.0;
+
+                    double gstAmount = isGstEnabled
+                        ? (subtotal * (gstPercentage / 100))
+                        : 0.0;
+                    double grandTotal = subtotal + gstAmount;
+
+                    // --- 2. Extract All Ordered Items for Itemized Bill ---
+                    Map<String, int> consolidatedItems = {};
+                    for (var order in placedOrders) {
+                      if (order['items'] != null) {
+                        Map<String, dynamic> items = order['items'];
+                        items.forEach((key, value) {
+                          consolidatedItems[key] =
+                              (consolidatedItems[key] ?? 0) + (value as int);
+                        });
+                      }
+                    }
+
+                    return Column(
+                      children: [
+                        const Icon(
+                          Icons.receipt_long_rounded,
+                          color: Colors.deepPurple,
+                          size: 40,
+                        ),
+                        const SizedBox(height: 15),
+                        const Text(
+                          "Bill Summary",
+                          style: TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.w900,
+                            color: Colors.black87,
+                          ),
+                        ),
+                        const SizedBox(height: 25),
+
+                        // --- 3. Itemized Ordered List UI ---
+                        if (consolidatedItems.isNotEmpty) ...[
+                          const Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              "Items Ordered",
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.black45,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          ...consolidatedItems.entries.map((entry) {
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 8.0),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    "${entry.value} x ", // Quantity
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w900,
+                                      color: Colors.deepPurple,
+                                      fontSize: 15,
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child: Text(
+                                      entry.key, // Item Name
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.black87,
+                                        fontSize: 15,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }).toList(),
+                          const Divider(height: 25, color: Colors.black12),
+                        ],
+
+                        // --- 4. Subtotal & Dynamic GST Totals ---
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              "Total Orders Placed",
+                              style: TextStyle(
+                                color: Colors.black54,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            Text(
+                              "${placedOrders.length}",
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w900,
+                                fontSize: 16,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              "Subtotal",
+                              style: TextStyle(
+                                fontSize: 15,
+                                color: Colors.black87,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            Text(
+                              "₹${subtotal.toStringAsFixed(2)}",
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+
+                        if (isGstEnabled && gstPercentage > 0) ...[
+                          const SizedBox(height: 10),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                "GST (${gstPercentage.toStringAsFixed(0)}%)",
+                                style: const TextStyle(
+                                  fontSize: 15,
+                                  color: Colors.black87,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              Text(
+                                "₹${gstAmount.toStringAsFixed(2)}",
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+
+                        const Divider(height: 25, color: Colors.black12),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              "Grand Total",
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.w900,
+                                color: Colors.black87,
+                              ),
+                            ),
+                            Text(
+                              "₹${grandTotal.toStringAsFixed(2)}",
+                              style: const TextStyle(
+                                fontSize: 24,
+                                fontWeight: FontWeight.w900,
+                                color: Colors.deepPurple,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    );
+                  },
                 ),
-              ],
-            ),
-          ),
-          const Spacer(),
+              ),
+            ), // Closing SingleChildScrollView
+          ), // Closing Expanded
+          const SizedBox(height: 15), // Spacer ki jagah fixed safe gap
           SizedBox(
             width: double.infinity,
             height: 65,
@@ -1797,76 +2442,159 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
       // 🌟 PREMIUM APP BAR (Hidden on Home/Review)
       appBar: (currentStep == 0 || currentStep == 4)
           ? null
-          : AppBar(
-              toolbarHeight: 80,
-              backgroundColor: Colors.white,
-              elevation: 0,
-              surfaceTintColor: Colors.white,
-              title: Row(
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: Image.asset(
-                      'assets/images/logo.png',
-                      width: 45,
-                      height: 45,
-                      fit: BoxFit.cover,
-                      errorBuilder: (c, e, s) => Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.deepPurple,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Icon(
-                          Icons.fastfood,
-                          color: Colors.white,
-                          size: 24,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 15),
-                  Expanded(
-                    child: Text(
-                      widget.hotelId.isEmpty ? "Hotel Grand" : widget.hotelId,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.black87,
-                        fontWeight: FontWeight.w900,
-                        fontSize: 22,
-                      ),
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withAlpha(10),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
+          : PreferredSize(
+              preferredSize: const Size.fromHeight(80),
+              child: StreamBuilder<DocumentSnapshot>(
+                stream: FirebaseFirestore.instance
+                    .collection('restaurants')
+                    .doc(widget.hotelId)
+                    .snapshots(),
+                builder: (context, snapshot) {
+                  String logoUrl = "";
+                  String displayName = widget.hotelId.isEmpty
+                      ? "Bite & Burp"
+                      : widget.hotelId;
+
+                  if (snapshot.hasData && snapshot.data!.exists) {
+                    final data = snapshot.data!.data() as Map<String, dynamic>?;
+                    if (data != null) {
+                      logoUrl = data['website_logo_url'] ?? "";
+                      displayName =
+                          data['restaurant_name'] ??
+                          data['website_display_name'] ??
+                          displayName;
+                    }
+                  }
+
+                  return AppBar(
+                    toolbarHeight: 80,
+                    backgroundColor: Colors.white,
+                    elevation: 0,
+                    surfaceTintColor: Colors.white,
+                    title: Row(
                       children: [
-                        const Icon(
-                          Icons.table_restaurant_rounded,
-                          color: Colors.black87,
-                          size: 18,
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: logoUrl.isNotEmpty
+                              ? Image.network(
+                                  logoUrl,
+                                  width: 45,
+                                  height: 45,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (c, e, s) => Container(
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color: Colors.deepPurple,
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: const Icon(
+                                      Icons.restaurant_rounded,
+                                      color: Colors.white,
+                                      size: 24,
+                                    ),
+                                  ),
+                                )
+                              : Container(
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: Colors.deepPurple,
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: const Icon(
+                                    Icons.restaurant_rounded,
+                                    color: Colors.white,
+                                    size: 24,
+                                  ),
+                                ),
                         ),
-                        const SizedBox(width: 6),
-                        Text(
-                          widget.tableId,
-                          style: const TextStyle(
-                            color: Colors.black87,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w900,
+                        const SizedBox(width: 15),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                displayName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Color(0xFF1A1B2F),
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 20,
+                                ),
+                              ),
+                              Text(
+                                "Dine. Enjoy. Repeat.",
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.grey.shade500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: Colors.grey.shade200,
+                              width: 1,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.03),
+                                blurRadius: 10,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.table_restaurant_rounded,
+                                color: Colors.deepPurple,
+                                size: 18,
+                              ),
+                              const SizedBox(width: 6),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    "TABLE",
+                                    style: TextStyle(
+                                      fontSize: 8,
+                                      fontWeight: FontWeight.w800,
+                                      color: Colors.grey.shade500,
+                                      letterSpacing: 0.5,
+                                    ),
+                                  ),
+                                  Text(
+                                    widget.tableId
+                                        .replaceAll('table_', '')
+                                        .replaceAll('t', ''),
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w900,
+                                      color: Color(0xFF1A1B2F),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
                           ),
                         ),
                       ],
                     ),
-                  ),
-                ],
+                  );
+                },
               ),
             ),
 
@@ -2048,4 +2776,370 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
             ),
     );
   }
+
+  // 🌟 SMART IMAGE FALLBACK LOGIC
+  Widget getSmartIcon(String itemName, {double size = 85}) {
+    final name = itemName.toLowerCase();
+    IconData iconData = Icons.fastfood_rounded;
+    Color iconColor = Colors.deepPurple;
+    Color bgColor = Colors.deepPurple.withValues(alpha: 0.08);
+
+    if (name.contains("pizza")) {
+      iconData = Icons.local_pizza_rounded;
+      iconColor = Colors.orange.shade700;
+      bgColor = Colors.orange.withValues(alpha: 0.08);
+    } else if (name.contains("burger")) {
+      iconData = Icons.lunch_dining_rounded;
+      iconColor = Colors.amber.shade800;
+      bgColor = Colors.amber.withValues(alpha: 0.08);
+    } else if (name.contains("pasta") ||
+        name.contains("noodles") ||
+        name.contains("ramen")) {
+      iconData = Icons.ramen_dining_rounded;
+      iconColor = Colors.red.shade700;
+      bgColor = Colors.red.withValues(alpha: 0.08);
+    } else if (name.contains("drink") ||
+        name.contains("cola") ||
+        name.contains("coffee") ||
+        name.contains("cafe")) {
+      iconData = Icons.local_drink_rounded;
+      iconColor = Colors.blue.shade700;
+      bgColor = Colors.blue.withValues(alpha: 0.08);
+    } else if (name.contains("paneer") ||
+        name.contains("dal") ||
+        name.contains("roti") ||
+        name.contains("curry") ||
+        name.contains("tikka")) {
+      iconData = Icons.restaurant_rounded;
+      iconColor = Colors.teal.shade700;
+      bgColor = Colors.teal.withValues(alpha: 0.08);
+    }
+
+    return Container(
+      width: size,
+      height: size,
+      color: bgColor,
+      child: Center(
+        child: Icon(iconData, color: iconColor, size: size * 0.45),
+      ),
+    );
+  }
+
+  // 🌟 PREMIUM VARIANTS & ADD-ONS POPUP
+  void showVariantsPopup(MenuItem item) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      isScrollControlled: true,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setModalState) {
+            return Container(
+              padding: const EdgeInsets.all(24),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          item.name,
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w900,
+                            color: Color(0xFF1A1B2F),
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close_rounded),
+                          onPressed: () => Navigator.pop(context),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      "Customize your order",
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey.shade500,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Variants List
+                    if (item.variants.isNotEmpty) ...[
+                      const Text(
+                        "Select Variant",
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF1A1B2F),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          border: Border.all(
+                            color: Colors.black.withValues(alpha: 0.08),
+                          ), // Premium light border
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Column(
+                          children: item.variants.entries.map((entry) {
+                            return RadioListTile<String>(
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                              ), // Box ke andar breathing space
+                              activeColor: Colors.deepPurple,
+                              title: Text(
+                                entry.key,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 14,
+                                ),
+                              ),
+                              secondary: Text(
+                                "₹${entry.value}",
+                                style: const TextStyle(
+                                  color: Colors.deepPurple,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                ),
+                              ),
+                              value: entry.key,
+                              groupValue: selectedVariant,
+                              onChanged: (String? value) {
+                                setModalState(() {
+                                  selectedVariant = value;
+                                });
+                                setState(() {}); // Parent state sync
+                              },
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+
+                    // Add-ons List
+                    if (item.addOns.isNotEmpty) ...[
+                      const Text(
+                        "Add-ons",
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF1A1B2F),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          border: Border.all(
+                            color: Colors.black.withValues(alpha: 0.08),
+                          ), // Premium light border
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Column(
+                          children: item.addOns.entries.map((entry) {
+                            return CheckboxListTile(
+                              controlAffinity: ListTileControlAffinity
+                                  .leading, // SWAP: Checkbox Left mein aur Price Right mein
+                              activeColor: Colors.deepPurple,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                              ), // Box ke andar breathing space
+                              title: Text(
+                                entry.key,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 14,
+                                ),
+                              ),
+                              secondary: Text(
+                                "₹${entry.value}",
+                                style: const TextStyle(
+                                  color: Colors.deepPurple,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                ),
+                              ),
+                              value: selectedAddOns.contains(entry.key),
+                              onChanged: (bool? selected) {
+                                setModalState(() {
+                                  if (selected == true) {
+                                    selectedAddOns.add(entry.key);
+                                  } else {
+                                    selectedAddOns.remove(entry.key);
+                                  }
+                                });
+                                setState(() {}); // Parent state sync
+                              },
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+
+                    // Add to Cart Action
+                    SizedBox(
+                      width: double.infinity,
+                      height: 52,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.deepPurple,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                        ),
+                        onPressed: () {
+                          double finalPrice = item.price;
+                          String uniqueCartKey = item.name;
+
+                          if (selectedVariant != null) {
+                            finalPrice += item.variants[selectedVariant] ?? 0.0;
+                            uniqueCartKey += " - $selectedVariant";
+                          }
+                          if (selectedAddOns.isNotEmpty) {
+                            finalPrice += selectedAddOns
+                                .map((a) => item.addOns[a] ?? 0.0)
+                                .fold(0.0, (sum, p) => sum + p);
+                            uniqueCartKey += " + " + selectedAddOns.join(", ");
+                          }
+
+                          _updateCart(uniqueCartKey, finalPrice, 1);
+                          Navigator.pop(context);
+                        },
+                        child: const Text(
+                          "Apply & Add to Cart",
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ), // <-- Close SingleChildScrollView
+            );
+          },
+        ); // <-- Close StatefulBuilder
+      },
+    );
+  }
+
+  // 🌟 WELCOME SCREEN FLOATING ICON HELPER
+  Widget _buildFloatingIcon({required IconData icon, required double size}) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Center(
+        child: Icon(icon, color: const Color(0xFF8C62FF), size: size * 0.5),
+      ),
+    );
+  }
+}
+
+// 🌟 TOP HEADER WAVE CLIPPER
+class TopHeaderClipper extends CustomClipper<Path> {
+  @override
+  Path getClip(Size size) {
+    Path path = Path();
+    path.lineTo(0, size.height * 0.75);
+
+    // Wave bezier curve
+    var firstControlPoint = Offset(size.width * 0.25, size.height * 0.65);
+    var firstEndPoint = Offset(size.width * 0.5, size.height * 0.78);
+    path.quadraticBezierTo(
+      firstControlPoint.dx,
+      firstControlPoint.dy,
+      firstEndPoint.dx,
+      firstEndPoint.dy,
+    );
+
+    var secondControlPoint = Offset(size.width * 0.75, size.height * 0.90);
+    var secondEndPoint = Offset(size.width, size.height * 0.80);
+    path.quadraticBezierTo(
+      secondControlPoint.dx,
+      secondControlPoint.dy,
+      secondEndPoint.dx,
+      secondEndPoint.dy,
+    );
+
+    path.lineTo(size.width, 0);
+    path.close();
+    return path;
+  }
+
+  @override
+  bool shouldReclip(covariant CustomClipper<Path> oldClipper) => false;
+}
+
+// 🌟 DASHED LINE PAINTER
+class DashedLinePainter extends CustomPainter {
+  final Color color;
+  DashedLinePainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    double dashWidth = 5, dashSpace = 4, startX = 0;
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 1;
+    while (startX < size.width) {
+      canvas.drawLine(Offset(startX, 0), Offset(startX + dashWidth, 0), paint);
+      startX += dashWidth + dashSpace;
+    }
+  }
+
+  @override
+  bool shouldRepaint(CustomPainter oldDelegate) => false;
+}
+
+// 🌟 MENU ITEM MODEL CLASS
+class MenuItem {
+  final String id;
+  final String name;
+  final double price;
+  final String? description;
+  final String? calories;
+  final String? weight;
+  final bool isVeg;
+  final String category;
+  final Map<String, double> variants;
+  final Map<String, double> addOns;
+
+  MenuItem({
+    required this.id,
+    required this.name,
+    required this.price,
+    this.description,
+    this.calories,
+    this.weight,
+    required this.isVeg,
+    required this.category,
+    this.variants = const {},
+    this.addOns = const {},
+  });
 }
