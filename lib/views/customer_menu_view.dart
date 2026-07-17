@@ -875,403 +875,298 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
   }
 
   // ==========================================
-  // 1. INTERACTIVE FULL-SCREEN 3D WATER RIPPLE BACKGROUND (FIXED)
+  // 1. DYNAMIC & SCROLLABLE HOME SCREEN (FIXED OVERLAP & NAME)
   Widget _buildHomeScreen() {
     final Size size = MediaQuery.of(context).size;
 
-    return Container(
-      width: double.infinity,
-      height: size.height,
-      color: const Color(
-        0xFFF8F9FE,
-      ), // Light background tone matching the screenshot
-      child: Column(
-        children: [
-          // 1. TOP HEADER SECTION (Purple Wave Gradient, Rings, Logos, Text)
-          Expanded(
-            flex: 10,
-            child: Stack(
-              clipBehavior: Clip.none,
-              children: [
-                // Wave Gradient Background
-                Positioned(
-                  top:
-                      -10, // Bleeds off top edge to cover status bar completely
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  child: ClipPath(
-                    clipper: TopHeaderClipper(),
-                    child: Container(
-                      decoration: const BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            Color(0xFF8C62FF), // Vibrant violet-purple
-                            Color(0xFFB39DDB), // Soft lavender
-                            Color(0xFFE8E0FF), // Light transition tone
-                          ],
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
+    return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
+      child: Container(
+        width: double.infinity,
+        height: size.height < 750
+            ? 750
+            : size.height, // Forces minimum height to prevent overlap
+        color: const Color(0xFFF8F9FE),
+        child: Column(
+          children: [
+            // 1. TOP HEADER SECTION (Purple Wave Gradient, Rings, Logos, Text)
+            Expanded(
+              flex: 9, // Adjusted flex for breathing room
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Positioned(
+                    top: -10,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: ClipPath(
+                      clipper: TopHeaderClipper(),
+                      child: Container(
+                        decoration: const BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              Color(0xFF8C62FF),
+                              Color(0xFFB39DDB),
+                              Color(0xFFE8E0FF),
+                            ],
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
-
-                // Concentric rings & Floating Icons
-                SafeArea(
-                  bottom: false,
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const SizedBox(height: 5),
-                      // Concentric rings stack
-                      Center(
-                        child: SizedBox(
-                          width: 240,
-                          height: 180,
-                          child: Stack(
-                            clipBehavior: Clip.none,
-                            children: [
-                              // Concentric Ring 1 (Outer)
-                              Center(
-                                child: Container(
-                                  width: 180,
-                                  height: 180,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                      color: Colors.white.withValues(
-                                        alpha: 0.15,
-                                      ),
-                                      width: 1.5,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              // Concentric Ring 2
-                              Center(
-                                child: Container(
-                                  width: 140,
-                                  height: 140,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                      color: Colors.white.withValues(
-                                        alpha: 0.25,
-                                      ),
-                                      width: 2.0,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              // Concentric Ring 3 (Inner White solid circle with logo)
-                              Center(
-                                child: Container(
-                                  width: 96,
-                                  height: 96,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: Colors.white,
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.black.withValues(
-                                          alpha: 0.1,
-                                        ),
-                                        blurRadius: 15,
-                                        offset: const Offset(0, 6),
-                                      ),
-                                    ],
-                                  ),
-                                  child: const Center(
-                                    child: Icon(
-                                      Icons.restaurant_rounded,
-                                      color: Color(0xFF673AB7),
-                                      size: 44,
-                                    ),
-                                  ),
-                                ),
-                              ),
-
-                              // Floating Food Icons (Burger, Cafe, Pizza, Service)
-                              Positioned(
-                                left: 5,
-                                top: 5,
-                                child:
-                                    _buildFloatingIcon(
-                                          icon: Icons.lunch_dining_rounded,
-                                          size: 40,
-                                        )
-                                        .animate(
-                                          onPlay: (controller) =>
-                                              controller.repeat(reverse: true),
-                                        )
-                                        .moveY(
-                                          begin: -4,
-                                          end: 4,
-                                          duration: 2200.ms,
-                                          curve: Curves.easeInOut,
-                                        ),
-                              ),
-                              Positioned(
-                                right: 5,
-                                top: 10,
-                                child:
-                                    _buildFloatingIcon(
-                                          icon: Icons.local_cafe_rounded,
-                                          size: 40,
-                                        )
-                                        .animate(
-                                          onPlay: (controller) =>
-                                              controller.repeat(reverse: true),
-                                        )
-                                        .moveY(
-                                          begin: -3,
-                                          end: 3,
-                                          duration: 2600.ms,
-                                          curve: Curves.easeInOut,
-                                        ),
-                              ),
-                              Positioned(
-                                left: 12,
-                                bottom: 10,
-                                child:
-                                    _buildFloatingIcon(
-                                          icon: Icons.local_pizza_rounded,
-                                          size: 40,
-                                        )
-                                        .animate(
-                                          onPlay: (controller) =>
-                                              controller.repeat(reverse: true),
-                                        )
-                                        .moveY(
-                                          begin: -5,
-                                          end: 5,
-                                          duration: 2400.ms,
-                                          curve: Curves.easeInOut,
-                                        ),
-                              ),
-                              Positioned(
-                                right: 8,
-                                bottom: 12,
-                                child:
-                                    _buildFloatingIcon(
-                                          icon: Icons.room_service_rounded,
-                                          size: 40,
-                                        )
-                                        .animate(
-                                          onPlay: (controller) =>
-                                              controller.repeat(reverse: true),
-                                        )
-                                        .moveY(
-                                          begin: -2,
-                                          end: 2,
-                                          duration: 2800.ms,
-                                          curve: Curves.easeInOut,
-                                        ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-
-                      // Welcome Texts under concentric circles
-                      const SizedBox(height: 4),
-                      Text(
-                        "— WELCOME TO —",
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w800,
-                          color: const Color(0xFF673AB7).withValues(alpha: 0.8),
-                          letterSpacing: 1.5,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      const Text(
-                        "Bite & Burp",
-                        style: TextStyle(
-                          fontSize: 32,
-                          fontWeight: FontWeight.w900,
-                          color: Color(0xFF1A1B2F),
-                          letterSpacing: -1,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        "Delicious moments, made for you!",
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      // Divider line with heart: — ♥ —
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Container(
-                            width: 30,
-                            height: 1,
-                            color: Colors.grey.shade300,
-                          ),
-                          const Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 8),
-                            child: Icon(
-                              Icons.favorite_rounded,
-                              color: Color(0xFF673AB7),
-                              size: 12,
-                            ),
-                          ),
-                          Container(
-                            width: 30,
-                            height: 1,
-                            color: Colors.grey.shade300,
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // 2. BOTTOM DETAILS CARD SECTION
-          Expanded(
-            flex: 12,
-            child: SafeArea(
-              top: false,
-              bottom: true,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-                child: Column(
-                  children: [
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 24,
-                        vertical: 16,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(30),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.04),
-                            blurRadius: 20,
-                            offset: const Offset(0, 10),
-                          ),
-                        ],
-                      ),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          // Title: YOUR TABLE DETAILS
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Expanded(
-                                child: Container(
-                                  height: 1,
-                                  color: Colors.grey.shade200,
-                                ),
-                              ),
-                              Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                ),
-                                child: Text(
-                                  "YOUR TABLE DETAILS",
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w800,
-                                    color: Colors.grey.shade500,
-                                    letterSpacing: 1,
-                                  ),
-                                ),
-                              ),
-                              Expanded(
-                                child: Container(
-                                  height: 1,
-                                  color: Colors.grey.shade200,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-
-                          // Table Identifier Pill
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 20,
-                              vertical: 6,
-                            ),
-                            decoration: BoxDecoration(
-                              color: const Color(
-                                0xFF673AB7,
-                              ).withValues(alpha: 0.06),
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
+                  SafeArea(
+                    bottom: false,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const SizedBox(height: 10),
+                        // Concentric rings stack (Reduced Size to prevent overlap)
+                        Center(
+                          child: SizedBox(
+                            width: 180,
+                            height: 140,
+                            child: Stack(
+                              clipBehavior: Clip.none,
                               children: [
-                                const Icon(
-                                  Icons.table_restaurant_rounded,
-                                  color: Color(0xFF673AB7),
-                                  size: 16,
+                                Center(
+                                  child: Container(
+                                    width: 140,
+                                    height: 140,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: Colors.white.withAlpha(40),
+                                        width: 1.5,
+                                      ),
+                                    ),
+                                  ),
                                 ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  widget.tableId == ':tableId' ||
-                                          widget.tableId == 'tableId'
-                                      ? "Table tableId"
-                                      : "Table ${widget.tableId.replaceAll('table_', '').replaceAll('t', '')}",
-                                  style: const TextStyle(
-                                    color: Color(0xFF673AB7),
-                                    fontWeight: FontWeight.w900,
-                                    fontSize: 13,
+                                Center(
+                                  child: Container(
+                                    width: 100,
+                                    height: 100,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: Colors.white.withAlpha(60),
+                                        width: 2.0,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                Center(
+                                  child: Container(
+                                    width: 75,
+                                    height: 75,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: Colors.white,
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black.withAlpha(25),
+                                          blurRadius: 15,
+                                          offset: const Offset(0, 6),
+                                        ),
+                                      ],
+                                    ),
+                                    child: const Center(
+                                      child: Icon(
+                                        Icons.restaurant_rounded,
+                                        color: Color(0xFF673AB7),
+                                        size: 35,
+                                      ),
+                                    ),
                                   ),
                                 ),
                               ],
                             ),
                           ),
-                          const SizedBox(height: 12),
-
-                          // Dashed Separator Line
-                          CustomPaint(
-                            size: const Size(double.infinity, 1),
-                            painter: DashedLinePainter(
-                              color: Colors.grey.shade300,
-                            ),
+                        ),
+                        const SizedBox(height: 15),
+                        Text(
+                          "— WELCOME TO —",
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                            color: const Color(0xFF673AB7).withAlpha(200),
+                            letterSpacing: 1.5,
                           ),
-                          const SizedBox(height: 12),
+                        ),
+                        const SizedBox(height: 5),
 
-                          // Explore Menu Button
-                          SizedBox(
-                            width: double.infinity,
-                            height: 48,
-                            child: Container(
+                        // 🌟 DYNAMIC HOTEL NAME FROM FIRESTORE
+                        StreamBuilder<DocumentSnapshot>(
+                          stream: FirebaseFirestore.instance
+                              .collection('restaurants')
+                              .doc(widget.hotelId)
+                              .snapshots(),
+                          builder: (context, snapshot) {
+                            String displayName = widget.hotelId.isEmpty
+                                ? "Bite & Burp"
+                                : widget.hotelId;
+                            if (snapshot.hasData && snapshot.data!.exists) {
+                              final data =
+                                  snapshot.data!.data()
+                                      as Map<String, dynamic>?;
+                              if (data != null) {
+                                displayName =
+                                    data['restaurant_name'] ??
+                                    data['website_display_name'] ??
+                                    displayName;
+                              }
+                            }
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 20,
+                              ),
+                              child: Text(
+                                displayName,
+                                textAlign: TextAlign.center,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 28,
+                                  fontWeight: FontWeight.w900,
+                                  color: Color(0xFF1A1B2F),
+                                  letterSpacing: -0.5,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+
+                        const SizedBox(height: 4),
+                        Text(
+                          "Delicious moments, made for you!",
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // 2. BOTTOM DETAILS CARD SECTION
+            Expanded(
+              flex: 11,
+              child: SafeArea(
+                top: false,
+                bottom: true,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 10, 20, 12),
+                  child: Column(
+                    children: [
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 24,
+                          vertical: 16,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(30),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withAlpha(10),
+                              blurRadius: 20,
+                              offset: const Offset(0, 10),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Expanded(
+                                  child: Container(
+                                    height: 1,
+                                    color: Colors.grey.shade200,
+                                  ),
+                                ),
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                  ),
+                                  child: Text(
+                                    "YOUR TABLE DETAILS",
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w800,
+                                      color: Colors.grey.shade500,
+                                      letterSpacing: 1,
+                                    ),
+                                  ),
+                                ),
+                                Expanded(
+                                  child: Container(
+                                    height: 1,
+                                    color: Colors.grey.shade200,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 15),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 20,
+                                vertical: 8,
+                              ),
                               decoration: BoxDecoration(
-                                color: const Color(0xFF673AB7),
+                                color: const Color(0xFF673AB7).withAlpha(15),
                                 borderRadius: BorderRadius.circular(16),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: const Color(
-                                      0xFF673AB7,
-                                    ).withValues(alpha: 0.25),
-                                    blurRadius: 10,
-                                    offset: const Offset(0, 4),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(
+                                    Icons.table_restaurant_rounded,
+                                    color: Color(0xFF673AB7),
+                                    size: 18,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  // Cleaned up Table ID display
+                                  Text(
+                                    widget.tableId.length > 5
+                                        ? "Table Validated"
+                                        : "Table ${widget.tableId.replaceAll('table_', '').replaceAll('t', '')}",
+                                    style: const TextStyle(
+                                      color: Color(0xFF673AB7),
+                                      fontWeight: FontWeight.w900,
+                                      fontSize: 14,
+                                    ),
                                   ),
                                 ],
                               ),
+                            ),
+                            const SizedBox(height: 20),
+                            CustomPaint(
+                              size: const Size(double.infinity, 1),
+                              painter: DashedLinePainter(
+                                color: Colors.grey.shade300,
+                              ),
+                            ),
+                            const SizedBox(height: 20),
+                            SizedBox(
+                              width: double.infinity,
+                              height: 50,
                               child: ElevatedButton(
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.transparent,
-                                  shadowColor: Colors.transparent,
+                                  backgroundColor: const Color(0xFF673AB7),
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(16),
                                   ),
+                                  elevation: 5,
                                 ),
                                 onPressed: () => setState(() {
                                   currentStep = 1;
@@ -1291,7 +1186,7 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                                       style: TextStyle(
                                         color: Colors.white,
                                         fontWeight: FontWeight.w900,
-                                        fontSize: 15,
+                                        fontSize: 16,
                                       ),
                                     ),
                                     Icon(
@@ -1303,102 +1198,88 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                                 ),
                               ),
                             ),
-                          ),
-                          const SizedBox(height: 8),
-
-                          // Rate Experience Button
-                          SizedBox(
-                            width: double.infinity,
-                            height: 48,
-                            child: OutlinedButton(
-                              style: OutlinedButton.styleFrom(
-                                side: const BorderSide(
-                                  color: Color(0xFF673AB7),
-                                  width: 1.5,
+                            const SizedBox(height: 12),
+                            SizedBox(
+                              width: double.infinity,
+                              height: 50,
+                              child: OutlinedButton(
+                                style: OutlinedButton.styleFrom(
+                                  side: const BorderSide(
+                                    color: Color(0xFF673AB7),
+                                    width: 1.5,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
                                 ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(16),
+                                onPressed: () =>
+                                    setState(() => currentStep = 4),
+                                child: const Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Icon(
+                                      Icons.star_rounded,
+                                      color: Color(0xFF673AB7),
+                                      size: 20,
+                                    ),
+                                    Text(
+                                      "Rate Experience",
+                                      style: TextStyle(
+                                        color: Color(0xFF673AB7),
+                                        fontWeight: FontWeight.w900,
+                                        fontSize: 16,
+                                      ),
+                                    ),
+                                    Icon(
+                                      Icons.chevron_right_rounded,
+                                      color: Color(0xFF673AB7),
+                                      size: 20,
+                                    ),
+                                  ],
                                 ),
                               ),
-                              onPressed: () => setState(() => currentStep = 4),
-                              child: const Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
+                            ),
+                            const SizedBox(height: 15),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.grey.shade100,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Icon(
-                                    Icons.star_rounded,
+                                  const Icon(
+                                    Icons.verified_user_rounded,
                                     color: Color(0xFF673AB7),
-                                    size: 20,
+                                    size: 14,
                                   ),
+                                  const SizedBox(width: 6),
                                   Text(
-                                    "Rate Experience",
+                                    "Secure • Fast • Contactless",
                                     style: TextStyle(
-                                      color: Color(0xFF673AB7),
-                                      fontWeight: FontWeight.w900,
-                                      fontSize: 15,
+                                      color: Colors.grey.shade600,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
                                     ),
-                                  ),
-                                  Icon(
-                                    Icons.chevron_right_rounded,
-                                    color: Color(0xFF673AB7),
-                                    size: 20,
                                   ),
                                 ],
                               ),
                             ),
-                          ),
-                          const SizedBox(height: 12),
-
-                          // Secure Badge
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.grey.shade100,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(
-                                  Icons.verified_user_rounded,
-                                  color: Color(0xFF673AB7),
-                                  size: 14,
-                                ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  "Secure • Fast • Contactless",
-                                  style: TextStyle(
-                                    color: Colors.grey.shade600,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 30),
-                    // Footer Copyright Text
-                    Text(
-                      "© 2024 Bite & Burp. All rights reserved.",
-                      style: TextStyle(
-                        color: Colors.grey.shade400,
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 5),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
