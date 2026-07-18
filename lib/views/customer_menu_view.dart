@@ -29,6 +29,7 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
   String searchQuery = "";
   String? selectedVariant;
   List<String> selectedAddOns = [];
+  Map<String, String> categoryNameMap = {};
 
   @override
   void initState() {
@@ -40,6 +41,30 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
 
   // 🌟 FETCH LIVE MENU FROM FIRESTORE (SAFE PARSING)
   void _fetchLiveMenu() {
+    // 🌟 Listen to Categories collection to map Category IDs to human-readable names
+    FirebaseFirestore.instance
+        .collection('restaurants')
+        .doc(widget.hotelId)
+        .collection('categories')
+        .snapshots()
+        .listen((catSnapshot) {
+          Map<String, String> newCategoryMap = {};
+          for (var doc in catSnapshot.docs) {
+            var cData = doc.data();
+            String name =
+                cData['name'] ??
+                cData['categoryName'] ??
+                cData['title'] ??
+                doc.id;
+            newCategoryMap[doc.id] = name;
+          }
+          if (mounted) {
+            setState(() {
+              categoryNameMap = newCategoryMap;
+            });
+          }
+        });
+
     FirebaseFirestore.instance
         .collection('restaurants')
         .doc(widget.hotelId)
@@ -111,6 +136,19 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                   data['dietaryPref'].toString().toLowerCase() != 'non-veg';
             }
 
+            // 🌟 Category Name Resolution: Checks explicit name -> mapped name -> fallback
+            String rawId = (data['categoryId'] ?? '').toString();
+            String rawCat = (data['category'] ?? '').toString();
+            String resolvedCategory =
+                data['categoryName'] ??
+                categoryNameMap[rawId] ??
+                categoryNameMap[rawCat] ??
+                (rawCat.isNotEmpty && rawCat != rawId ? rawCat : null) ??
+                (categoryNameMap.containsKey(rawId)
+                    ? categoryNameMap[rawId]
+                    : null) ??
+                'Others';
+
             fetchedItems.add(
               MenuItem(
                 id: doc.id,
@@ -120,7 +158,7 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                 calories: data['calories']?.toString() ?? '',
                 weight: data['weight']?.toString() ?? '',
                 isVeg: safeVeg,
-                category: data['categoryId'] ?? data['category'] ?? 'Others',
+                category: resolvedCategory,
                 variants: parsedVariants,
                 addOns: parsedAddons,
               ),
