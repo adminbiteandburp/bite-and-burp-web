@@ -356,127 +356,330 @@ class _WaiterMenuViewState extends State<WaiterMenuView> {
     );
   }
 
-  // 🌟 NAYA FIX: Customization Popup for Variants & Add-ons
+  // 🌟 PREMIUM VARIANTS & ADD-ONS POPUP (STANDARDIZED WITH CUSTOMER MENU)
   void _showCustomizationPopup(
     BuildContext context,
     Map<String, dynamic> item,
   ) {
-    List variants = item['variants'] ?? [];
-    List addOns = item['addOns'] ?? [];
+    String? selectedVariant;
+    List<String> selectedAddOns = [];
+
+    // Safe parsing for variants (supports Map and List forms)
+    Map<String, double> variantsMap = {};
+    if (item['variants'] != null) {
+      if (item['variants'] is Map) {
+        (item['variants'] as Map).forEach(
+          (k, v) =>
+              variantsMap[k.toString()] = double.tryParse(v.toString()) ?? 0.0,
+        );
+      } else if (item['variants'] is List) {
+        for (var v in item['variants']) {
+          if (v is Map && v['name'] != null && v['price'] != null) {
+            variantsMap[v['name'].toString()] =
+                double.tryParse(v['price'].toString()) ?? 0.0;
+          }
+        }
+      }
+    }
+
+    // Safe parsing for add-ons (supports Map and List forms)
+    Map<String, double> addOnsMap = {};
+    final addonData = item['addons'] ?? item['addOns'];
+    if (addonData != null) {
+      if (addonData is Map) {
+        (addonData as Map).forEach(
+          (k, v) =>
+              addOnsMap[k.toString()] = double.tryParse(v.toString()) ?? 0.0,
+        );
+      } else if (addonData is List) {
+        for (var a in addonData) {
+          if (a is Map && a['name'] != null && a['price'] != null) {
+            addOnsMap[a['name'].toString()] =
+                double.tryParse(a['price'].toString()) ?? 0.0;
+          }
+        }
+      }
+    }
+
+    double basePrice = (item['price'] ?? 0.0).toDouble();
+    String itemName = item['name'] ?? 'Item';
 
     showModalBottomSheet(
       context: context,
-      isScrollControlled: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
+      isScrollControlled: true,
       builder: (context) {
-        return Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).padding.bottom,
-            top: 20,
-            left: 20,
-            right: 20,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                "Customize ${item['name']}",
-                style: GoogleFonts.poppins(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setModalState) {
+            return Container(
+              padding: const EdgeInsets.all(24),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          itemName,
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w900,
+                            color: Color(0xFF1A1B2F),
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close_rounded),
+                          onPressed: () => Navigator.pop(context),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      "Customize your order",
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey.shade500,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+
+                    // 1. Variants List (Radio buttons)
+                    if (variantsMap.isNotEmpty) ...[
+                      const Text(
+                        "Select Variant",
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF1A1B2F),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Column(
+                        children: variantsMap.entries.map((entry) {
+                          bool isSelected = selectedVariant == entry.key;
+                          return GestureDetector(
+                            onTap: () {
+                              setModalState(() => selectedVariant = entry.key);
+                            },
+                            child: Container(
+                              margin: const EdgeInsets.only(bottom: 12),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 14,
+                              ),
+                              decoration: BoxDecoration(
+                                color: isSelected
+                                    ? Colors.deepPurple.withAlpha(15)
+                                    : Colors.transparent,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: isSelected
+                                      ? Colors.deepPurple
+                                      : Colors.grey.shade300,
+                                  width: isSelected ? 1.5 : 1.0,
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  SizedBox(
+                                    height: 24,
+                                    width: 24,
+                                    child: Radio<String>(
+                                      value: entry.key,
+                                      groupValue: selectedVariant,
+                                      activeColor: Colors.deepPurple,
+                                      onChanged: (val) {
+                                        setModalState(
+                                          () => selectedVariant = val,
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                  const SizedBox(width: 14),
+                                  Expanded(
+                                    child: Text(
+                                      entry.key,
+                                      style: TextStyle(
+                                        fontWeight: isSelected
+                                            ? FontWeight.w800
+                                            : FontWeight.w600,
+                                        fontSize: 14,
+                                        color: isSelected
+                                            ? Colors.deepPurple.shade900
+                                            : Colors.black87,
+                                      ),
+                                    ),
+                                  ),
+                                  Text(
+                                    "₹${entry.value.toStringAsFixed(0)}",
+                                    style: TextStyle(
+                                      color: isSelected
+                                          ? Colors.deepPurple
+                                          : Colors.black54,
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+
+                    // 2. Add-ons List (Checkboxes)
+                    if (addOnsMap.isNotEmpty) ...[
+                      const Text(
+                        "Add-ons",
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF1A1B2F),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Column(
+                        children: addOnsMap.entries.map((entry) {
+                          bool isSelected = selectedAddOns.contains(
+                            entry.key,
+                          );
+                          return GestureDetector(
+                            onTap: () {
+                              setModalState(() {
+                                if (isSelected) {
+                                  selectedAddOns.remove(entry.key);
+                                } else {
+                                  selectedAddOns.add(entry.key);
+                                }
+                              });
+                            },
+                            child: Container(
+                              margin: const EdgeInsets.only(bottom: 12),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 14,
+                              ),
+                              decoration: BoxDecoration(
+                                color: isSelected
+                                    ? Colors.deepPurple.withAlpha(10)
+                                    : Colors.transparent,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: isSelected
+                                      ? Colors.deepPurple.withAlpha(150)
+                                      : Colors.grey.shade300,
+                                  width: isSelected ? 1.5 : 1.0,
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  SizedBox(
+                                    height: 24,
+                                    width: 24,
+                                    child: Checkbox(
+                                      value: isSelected,
+                                      activeColor: Colors.deepPurple,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(
+                                          4,
+                                        ),
+                                      ),
+                                      onChanged: (val) {
+                                        setModalState(() {
+                                          if (val == true) {
+                                            selectedAddOns.add(entry.key);
+                                          } else {
+                                            selectedAddOns.remove(entry.key);
+                                          }
+                                        });
+                                      },
+                                    ),
+                                  ),
+                                  const SizedBox(width: 14),
+                                  Expanded(
+                                    child: Text(
+                                      entry.key,
+                                      style: TextStyle(
+                                        fontWeight: isSelected
+                                            ? FontWeight.w800
+                                            : FontWeight.w600,
+                                        fontSize: 14,
+                                        color: Colors.black87,
+                                      ),
+                                    ),
+                                  ),
+                                  Text(
+                                    "+ ₹${entry.value.toStringAsFixed(0)}",
+                                    style: const TextStyle(
+                                      color: Colors.deepPurple,
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+
+                    // 3. Add to Cart Action Button
+                    SizedBox(
+                      width: double.infinity,
+                      height: 52,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.deepPurple,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                        ),
+                        onPressed: () {
+                          double finalPrice = basePrice;
+                          String uniqueCartKey = itemName;
+
+                          if (selectedVariant != null) {
+                            finalPrice += variantsMap[selectedVariant] ?? 0.0;
+                            uniqueCartKey += " - $selectedVariant";
+                          }
+                          if (selectedAddOns.isNotEmpty) {
+                            finalPrice += selectedAddOns
+                                .map((a) => addOnsMap[a] ?? 0.0)
+                                .fold<double>(
+                                  0.0,
+                                  (accTotal, p) => accTotal + p,
+                                );
+                            uniqueCartKey += " + ${selectedAddOns.join(", ")}";
+                          }
+
+                          _updateCart(uniqueCartKey, finalPrice, 1);
+                          Navigator.pop(context);
+                        },
+                        child: const Text(
+                          "Apply & Add to Cart",
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const Divider(),
-
-              if (variants.isNotEmpty) ...[
-                const SizedBox(height: 10),
-                Text(
-                  "Select Variant",
-                  style: GoogleFonts.poppins(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.grey.shade700,
-                  ),
-                ),
-                ...variants.map(
-                  (v) => ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(
-                      v['name'],
-                      style: GoogleFonts.poppins(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    trailing: Text(
-                      "₹${v['price']}",
-                      style: GoogleFonts.poppins(
-                        fontSize: 15,
-                        color: Colors.deepPurple,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    onTap: () {
-                      // Example: Add specifically this variant to cart
-                      _updateCart(
-                        "${item['name']} (${v['name']})",
-                        (v['price'] as num).toDouble(),
-                        1,
-                      );
-                      Navigator.pop(context);
-                    },
-                  ),
-                ),
-              ],
-
-              if (addOns.isNotEmpty) ...[
-                const SizedBox(height: 10),
-                Text(
-                  "Add-Ons (Optional)",
-                  style: GoogleFonts.poppins(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.grey.shade700,
-                  ),
-                ),
-                ...addOns.map(
-                  (a) => ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(
-                      a['name'],
-                      style: GoogleFonts.poppins(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    trailing: Text(
-                      "+ ₹${a['price']}",
-                      style: GoogleFonts.poppins(
-                        fontSize: 15,
-                        color: Colors.deepPurple,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    onTap: () {
-                      // Logic to toggle add-on can go here. For now, it adds as a separate item to keep cart simple.
-                      _updateCart(
-                        "${item['name']} + ${a['name']}",
-                        (item['price'] as num).toDouble() +
-                            (a['price'] as num).toDouble(),
-                        1,
-                      );
-                      Navigator.pop(context);
-                    },
-                  ),
-                ),
-              ],
-              const SizedBox(height: 20),
-            ],
-          ),
+            );
+          },
         );
       },
     );

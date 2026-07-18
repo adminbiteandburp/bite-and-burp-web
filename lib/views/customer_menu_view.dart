@@ -2159,131 +2159,25 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
   // 2. COMPACT PREMIUM MENU
   // ==========================================
   Widget _buildMenuTab() {
-    // 🌟 TEMPORARY DUMMY DATA FOR UI TESTING (CLEAN AND FIXED) 🌟
-    List<String> categories = [
-      'All', // 🌟 FIX: Moved 'All' to the front
-      'Starters',
-      'Mains',
-      'Beverages',
-      'Desserts',
-    ];
-    List<MenuItem> filteredItems = [
-      MenuItem(
-        id: "dummy_1", // 🌟 FIX: ID is now included
-        name: "Crispy Veg Spring Roll",
-        category: "Starters",
-        price: 180.0,
-        isVeg: true,
-        description:
-            "Crispy golden rolls filled with spiced vegetables and glass noodles.",
-        variants: {},
-        addOns: {"Extra Dip": 20, "Spicy Mayo": 30},
-      ),
-      MenuItem(
-        id: "dummy_2",
-        name: "Paneer Tikka Shashlik",
-        category: "Starters",
-        price: 260.0,
-        isVeg: true,
-        description:
-            "Cottage cheese marinated in yogurt and spices, grilled to perfection on a tandoor.",
-        variants: {"Half": 150, "Full": 260},
-        addOns: {},
-      ),
-      MenuItem(
-        id: "dummy_3",
-        name: "Chicken Spicy Wings",
-        category: "Starters",
-        price: 290.0,
-        isVeg: false,
-        description:
-            "Deep fried chicken wings tossed in our signature hot and spicy sauce.",
-        variants: {},
-        addOns: {},
-      ),
-      MenuItem(
-        id: "dummy_4",
-        name: "Authentic Margherita Pizza",
-        category: "Mains",
-        price: 350.0,
-        isVeg: true,
-        description:
-            "Classic delight with 100% real mozzarella cheese and fresh basil leaves.",
-        variants: {"Medium": 350, "Large": 500},
-        addOns: {"Extra Cheese": 60, "Jalapenos": 40},
-      ),
-      MenuItem(
-        id: "dummy_5",
-        name: "Creamy Alfredo Pasta",
-        category: "Mains",
-        price: 280.0,
-        isVeg: true,
-        description:
-            "Penne pasta in a rich and creamy white sauce tossed with exotic veggies.",
-        variants: {},
-        addOns: {"Grilled Chicken": 80, "Garlic Bread (2Pc)": 60},
-      ),
-      MenuItem(
-        id: "dummy_6",
-        name: "Punjabi Butter Chicken",
-        category: "Mains",
-        price: 380.0,
-        isVeg: false,
-        description:
-            "Tender chicken cooked in a rich, buttery and creamy tomato gravy.",
-        variants: {"Half": 220, "Full": 380},
-        addOns: {"Butter Naan": 45, "Lachha Paratha": 55},
-      ),
-      MenuItem(
-        id: "dummy_7",
-        name: "Classic Virgin Mojito",
-        category: "Beverages",
-        price: 150.0,
-        isVeg: true,
-        description:
-            "Refreshing blend of fresh mint leaves, lemon, and sparkling water.",
-        variants: {},
-        addOns: {},
-      ),
-      MenuItem(
-        id: "dummy_8",
-        name: "Thick Cold Coffee",
-        category: "Beverages",
-        price: 180.0,
-        isVeg: true,
-        description:
-            "Creamy, rich blended iced coffee topped with chocolate syrup.",
-        variants: {},
-        addOns: {"Vanilla Scoop": 50},
-      ),
-      MenuItem(
-        id: "dummy_9",
-        name: "Sizzling Brownie",
-        category: "Desserts",
-        price: 220.0,
-        isVeg: true,
-        description:
-            "Hot chocolate brownie served on a sizzler plate with vanilla ice cream.",
-        variants: {},
-        addOns: {"Extra Chocolate Sauce": 30},
-      ),
-      MenuItem(
-        id: "dummy_10",
-        name: "Classic Tiramisu",
-        category: "Desserts",
-        price: 250.0,
-        isVeg: true,
-        description: "Authentic coffee-flavoured Italian dessert.",
-        variants: {},
-        addOns: {},
-      ),
-    ];
+    // 🌟 1. GET DYNAMIC CATEGORIES FROM LIVE FIRESTORE ITEMS
+    final List<String> categories = dynamicCategories;
 
-    // Dynamically update itemPrices map for the cart logic to keep working
-    for (var item in filteredItems) {
+    // 🌟 2. FILTER LIVE FIRESTORE ITEMS BY SEARCH
+    List<MenuItem> filteredItems = dummyItems.where((item) {
+      bool matchesSearch =
+          searchQuery.isEmpty ||
+          item.name.toLowerCase().contains(searchQuery.toLowerCase()) ||
+          (item.description != null &&
+              item.description!.toLowerCase().contains(
+                searchQuery.toLowerCase(),
+              ));
+      return matchesSearch;
+    }).toList();
+
+    // 🌟 3. POPULATE ITEM PRICES MAP FOR CART FUNCTIONALITY
+    for (var item in dummyItems) {
       itemPrices[item.name] = item.price;
     }
-    // 🌟 TEMPORARY DUMMY DATA ENDS HERE 🌟
 
     return Column(
       children: [
@@ -2331,14 +2225,10 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
             itemCount: categories.length,
             itemBuilder: (ctx, i) {
               bool isSelected = selectedCategory == categories[i];
-              String catId = categories[i];
-
-              // 🌟 FIX: Name Map. Agar aapke DB se Category Name alag se fetch hota hai,
-              // toh 'catId' ko apne 'categoryNameMap[catId]' se replace kar lein.
-              String displayCatName = catId;
+              String catName = categories[i];
 
               return GestureDetector(
-                onTap: () => setState(() => selectedCategory = categories[i]),
+                onTap: () => setState(() => selectedCategory = catName),
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 200),
                   margin: const EdgeInsets.symmetric(
@@ -2364,7 +2254,7 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                   ),
                   alignment: Alignment.center,
                   child: Text(
-                    displayCatName, // 🌟 NAYA: Yahan ab converted naam aayega
+                    catName,
                     style: TextStyle(
                       fontWeight: FontWeight.w800,
                       fontSize: 13,
@@ -2377,7 +2267,7 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
           ),
         ),
 
-        // 3. Grouped Items List (Saffron Bistro Premium Style)
+        // 3. Grouped Items List (Live Firestore Data)
         Expanded(
           child: filteredItems.isEmpty
               ? const Center(
@@ -2390,51 +2280,52 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                   padding: EdgeInsets.only(bottom: cartTotal > 0 ? 100 : 20),
                   physics: const BouncingScrollPhysics(),
                   addAutomaticKeepAlives: true,
-                  itemCount: categories
-                      .length, // 🌟 NAYA LOGIC: Ab list Items pe nahi, Categories pe chalegi
+                  itemCount: categories.length,
                   itemBuilder: (ctx, catIndex) {
                     String catName = categories[catIndex];
-                    if (catName == 'All')
-                      return const SizedBox.shrink(); // Ignore 'All' pill
 
-                    // Agar user ne koi specific category select ki hai, aur yeh wo nahi hai, toh skip karo
+                    // Render "All" logic
+                    if (catName == 'All') {
+                      if (selectedCategory != 'All')
+                        return const SizedBox.shrink();
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: filteredItems.map((item) {
+                          final int qty = cart[item.name] ?? 0;
+                          return _buildPremiumItemCard(item, qty);
+                        }).toList(),
+                      );
+                    }
+
+                    // Strict Category Select logic
                     if (selectedCategory != 'All' &&
                         selectedCategory != catName) {
                       return const SizedBox.shrink();
                     }
 
-                    // Is category ke items nikal lo
-                    List<dynamic> catItems = filteredItems.where((item) {
-                      try {
-                        // Safe check for category property
-                        return item.category ==
-                            catName; // 🌟 FIX: Removed undefined getters
-                      } catch (e) {
-                        return false;
-                      }
-                    }).toList();
+                    // Extract items for this specific category
+                    List<MenuItem> catItems = filteredItems
+                        .where((item) => item.category == catName)
+                        .toList();
 
-                    // Agar is category mein koi item nahi hai, toh header mat dikhao
                     if (catItems.isEmpty) return const SizedBox.shrink();
 
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // 🌟 PREMIUM CATEGORY HEADER (e.g., Starters)
+                        // Category Header
                         Padding(
                           padding: const EdgeInsets.fromLTRB(25, 25, 20, 5),
                           child: Text(
                             catName,
                             style: GoogleFonts.cormorantGaramond(
-                              // 🌟 FIX: Category Header premium serif ho gaya
-                              fontSize:
-                                  28, // Saffron Bistro jaisa bold aur bada feel
+                              fontSize: 28,
                               fontWeight: FontWeight.w900,
                               color: const Color(0xFF1A1B2F),
                             ),
                           ),
                         ),
-                        // 🌟 ITEMS RENDERED VIA NEW FUNCTION
+                        // Category Items
                         ...catItems.map((item) {
                           final int qty = cart[item.name] ?? 0;
                           return _buildPremiumItemCard(item, qty);
