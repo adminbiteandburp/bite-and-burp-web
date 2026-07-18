@@ -1636,6 +1636,12 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
             itemCount: categories.length,
             itemBuilder: (ctx, i) {
               bool isSelected = selectedCategory == categories[i];
+              String catId = categories[i];
+
+              // 🌟 FIX: Name Map. Agar aapke DB se Category Name alag se fetch hota hai,
+              // toh 'catId' ko apne 'categoryNameMap[catId]' se replace kar lein.
+              String displayCatName = catId;
+
               return GestureDetector(
                 onTap: () => setState(() => selectedCategory = categories[i]),
                 child: AnimatedContainer(
@@ -1663,7 +1669,7 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                   ),
                   alignment: Alignment.center,
                   child: Text(
-                    categories[i],
+                    displayCatName, // 🌟 NAYA: Yahan ab converted naam aayega
                     style: TextStyle(
                       fontWeight: FontWeight.w800,
                       fontSize: 13,
@@ -1692,6 +1698,8 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                     bottom: cartTotal > 0 ? 100 : 20,
                   ),
                   physics: const BouncingScrollPhysics(),
+                  addAutomaticKeepAlives:
+                      true, // 🌟 NAYA: Scrolling ko ekdum smooth karega
                   itemCount: filteredItems.length,
                   itemBuilder: (ctx, i) {
                     final item = filteredItems[i];
@@ -2165,8 +2173,11 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                 ],
               ),
               const Divider(height: 30, color: Colors.black12),
-              ...items.entries.map(
-                (e) => Padding(
+              ...items.entries.map((e) {
+                // 🌟 FIX: Dynamic typecast taaki 'int' array error na aaye
+                dynamic val = e.value;
+                final qty = (val is Map) ? (val['quantity'] ?? 1) : val;
+                return Padding(
                   padding: const EdgeInsets.only(bottom: 12),
                   child: Row(
                     children: [
@@ -2180,10 +2191,11 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: Text(
-                          "${e.value}x",
-                          style: const TextStyle(
-                            color: Colors.deepPurple,
+                          "${qty}x",
+                          style: TextStyle(
+                            color: Colors.orangeAccent.shade700,
                             fontWeight: FontWeight.w900,
+                            fontSize: 12,
                           ),
                         ),
                       ),
@@ -2200,8 +2212,8 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                       ),
                     ],
                   ),
-                ),
-              ),
+                );
+              }).toList(), // 🌟 FIX: Yahan list proper close hogi
               const Divider(height: 30, color: Colors.black12),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -2295,186 +2307,221 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                           ((order['subtotal'] ?? 0.0) as num).toDouble(),
                     );
 
-                    // TODO: Link these 2 variables with your App/Restaurant settings (e.g. widget.restaurant.isGstEnabled)
-                    bool isGstEnabled = true;
-                    double gstPercentage = 5.0;
+                    // 🌟 NAYA: DYNAMIC GST STREAM WRAPPER ADDED
+                    return StreamBuilder<DocumentSnapshot>(
+                      stream: FirebaseFirestore.instance
+                          .collection('restaurants')
+                          .doc(widget.hotelId)
+                          .collection('settings')
+                          .doc('printing')
+                          .snapshots(),
+                      builder: (context, settingsSnap) {
+                        bool isGstEnabled = false;
+                        double gstPercentage = 0.0;
 
-                    double gstAmount = isGstEnabled
-                        ? (subtotal * (gstPercentage / 100))
-                        : 0.0;
-                    double grandTotal = subtotal + gstAmount;
+                        if (settingsSnap.hasData && settingsSnap.data!.exists) {
+                          var printData =
+                              settingsSnap.data!.data()
+                                  as Map<String, dynamic>? ??
+                              {};
+                          isGstEnabled = printData['billGSTEnabled'] ?? false;
+                          gstPercentage =
+                              double.tryParse(
+                                printData['billTaxRate']?.toString() ?? '0',
+                              ) ??
+                              0.0;
+                        }
 
-                    // --- 2. Extract All Ordered Items for Itemized Bill ---
-                    Map<String, int> consolidatedItems = {};
-                    for (var order in placedOrders) {
-                      if (order['items'] != null) {
-                        Map<String, dynamic> items = order['items'];
-                        items.forEach((key, value) {
-                          consolidatedItems[key] =
-                              (consolidatedItems[key] ?? 0) + (value as int);
-                        });
-                      }
-                    }
+                        double gstAmount = isGstEnabled
+                            ? (subtotal * (gstPercentage / 100))
+                            : 0.0;
+                        double grandTotal = subtotal + gstAmount;
 
-                    return Column(
-                      children: [
-                        const Icon(
-                          Icons.receipt_long_rounded,
-                          color: Colors.deepPurple,
-                          size: 40,
-                        ),
-                        const SizedBox(height: 15),
-                        const Text(
-                          "Bill Summary",
-                          style: TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.w900,
-                            color: Colors.black87,
-                          ),
-                        ),
-                        const SizedBox(height: 25),
+                        // --- 2. Extract All Ordered Items for Itemized Bill ---
+                        Map<String, int> consolidatedItems = {};
+                        for (var order in placedOrders) {
+                          if (order['items'] != null) {
+                            try {
+                              final dynamicItems = order['items'] as Map;
+                              dynamicItems.forEach((key, value) {
+                                // 🌟 NAYA: Ensure format correctly adds to the total bill counts
+                                int parsedQty = (value is Map)
+                                    ? (value['quantity'] ?? 1)
+                                    : int.parse(value.toString());
+                                consolidatedItems[key.toString()] =
+                                    (consolidatedItems[key.toString()] ?? 0) +
+                                    parsedQty;
+                              });
+                            } catch (e) {
+                              debugPrint('Bill items parsing issue: $e');
+                            }
+                          }
+                        }
 
-                        // --- 3. Itemized Ordered List UI ---
-                        if (consolidatedItems.isNotEmpty) ...[
-                          const Align(
-                            alignment: Alignment.centerLeft,
-                            child: Text(
-                              "Items Ordered",
+                        return Column(
+                          children: [
+                            const Icon(
+                              Icons.receipt_long_rounded,
+                              color: Colors.deepPurple,
+                              size: 40,
+                            ),
+                            const SizedBox(height: 15),
+                            const Text(
+                              "Bill Summary",
                               style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.black45,
+                                fontSize: 24,
+                                fontWeight: FontWeight.w900,
+                                color: Colors.black87,
                               ),
                             ),
-                          ),
-                          const SizedBox(height: 12),
-                          ...consolidatedItems.entries.map((entry) {
-                            return Padding(
-                              padding: const EdgeInsets.only(bottom: 8.0),
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                            const SizedBox(height: 25),
+
+                            // --- 3. Itemized Ordered List UI ---
+                            if (consolidatedItems.isNotEmpty) ...[
+                              const Align(
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                  "Items Ordered",
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.black45,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              ...consolidatedItems.entries.map((entry) {
+                                return Padding(
+                                  padding: const EdgeInsets.only(bottom: 8.0),
+                                  child: Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        "${entry.value} x ", // Quantity
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w900,
+                                          color: Colors.deepPurple,
+                                          fontSize: 15,
+                                        ),
+                                      ),
+                                      Expanded(
+                                        child: Text(
+                                          entry.key, // Item Name
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                            color: Colors.black87,
+                                            fontSize: 15,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }).toList(),
+                              const Divider(height: 25, color: Colors.black12),
+                            ],
+
+                            // --- 4. Subtotal & Dynamic GST Totals ---
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text(
+                                  "Total Orders Placed",
+                                  style: TextStyle(
+                                    color: Colors.black54,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                Text(
+                                  "${placedOrders.length}",
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text(
+                                  "Subtotal",
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    color: Colors.black87,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                Text(
+                                  "₹${subtotal.toStringAsFixed(2)}",
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
+
+                            if (isGstEnabled && gstPercentage > 0) ...[
+                              const SizedBox(height: 10),
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
                                 children: [
                                   Text(
-                                    "${entry.value} x ", // Quantity
+                                    "GST (${gstPercentage.toStringAsFixed(0)}%)",
                                     style: const TextStyle(
-                                      fontWeight: FontWeight.w900,
-                                      color: Colors.deepPurple,
                                       fontSize: 15,
+                                      color: Colors.black87,
+                                      fontWeight: FontWeight.w600,
                                     ),
                                   ),
-                                  Expanded(
-                                    child: Text(
-                                      entry.key, // Item Name
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w600,
-                                        color: Colors.black87,
-                                        fontSize: 15,
-                                      ),
+                                  Text(
+                                    "₹${gstAmount.toStringAsFixed(2)}",
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
                                     ),
                                   ),
                                 ],
                               ),
-                            );
-                          }).toList(),
-                          const Divider(height: 25, color: Colors.black12),
-                        ],
-
-                        // --- 4. Subtotal & Dynamic GST Totals ---
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Text(
-                              "Total Orders Placed",
-                              style: TextStyle(
-                                color: Colors.black54,
-                                fontSize: 15,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            Text(
-                              "${placedOrders.length}",
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w900,
-                                fontSize: 16,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Text(
-                              "Subtotal",
-                              style: TextStyle(
-                                fontSize: 15,
-                                color: Colors.black87,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            Text(
-                              "₹${subtotal.toStringAsFixed(2)}",
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-
-                        if (isGstEnabled && gstPercentage > 0) ...[
-                          const SizedBox(height: 10),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                "GST (${gstPercentage.toStringAsFixed(0)}%)",
-                                style: const TextStyle(
-                                  fontSize: 15,
-                                  color: Colors.black87,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              Text(
-                                "₹${gstAmount.toStringAsFixed(2)}",
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
                             ],
-                          ),
-                        ],
 
-                        const Divider(height: 25, color: Colors.black12),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Text(
-                              "Grand Total",
-                              style: TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.w900,
-                                color: Colors.black87,
-                              ),
-                            ),
-                            Text(
-                              "₹${grandTotal.toStringAsFixed(2)}",
-                              style: const TextStyle(
-                                fontSize: 24,
-                                fontWeight: FontWeight.w900,
-                                color: Colors.deepPurple,
-                              ),
-                            ),
+                            const Divider(height: 25, color: Colors.black12),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text(
+                                  "Grand Total",
+                                  style: TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w900,
+                                    color: Colors.black87,
+                                  ),
+                                ),
+                                Text(
+                                  "₹${grandTotal.toStringAsFixed(2)}",
+                                  style: const TextStyle(
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.w900,
+                                    color: Colors.deepPurple,
+                                  ),
+                                ),
+                              ],
+                            ), // Row (Grand Total)
                           ],
-                        ),
-                      ],
-                    );
-                  },
-                ),
-              ),
-            ), // Closing SingleChildScrollView
-          ), // Closing Expanded
+                        ); // Column (Inner Bill Summary)
+                      }, // StreamBuilder Builder close
+                    ); // StreamBuilder close
+                  }, // Builder close
+                ), // Builder widget close
+              ), // Container close
+            ), // SingleChildScrollView close
+          ), // Expanded close
+
           const SizedBox(height: 15), // Spacer ki jagah fixed safe gap
           SizedBox(
             width: double.infinity,
@@ -2501,8 +2548,8 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
             ),
           ),
         ],
-      ),
-    );
+      ), // Column close
+    ); // Padding close
   }
 
   @override
@@ -2605,60 +2652,66 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                           ),
                         ),
                         const SizedBox(width: 10),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: Colors.grey.shade200,
-                              width: 1,
+                        Center(
+                          // 🌟 FIX: Wrapped in Center to align badge perfectly in AppBar
+                          child: Container(
+                            margin: const EdgeInsets.only(
+                              right: 15,
+                            ), // Safe right spacing
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 6,
                             ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.03),
-                                blurRadius: 10,
-                                offset: const Offset(0, 4),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: Colors.grey.shade200,
+                                width: 1,
                               ),
-                            ],
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(
-                                Icons.table_restaurant_rounded,
-                                color: Colors.deepPurple,
-                                size: 18,
-                              ),
-                              const SizedBox(width: 6),
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    "TABLE",
-                                    style: TextStyle(
-                                      fontSize: 8,
-                                      fontWeight: FontWeight.w800,
-                                      color: Colors.grey.shade500,
-                                      letterSpacing: 0.5,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.03),
+                                  blurRadius: 10,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  Icons.table_restaurant_rounded,
+                                  color: Colors.deepPurple,
+                                  size: 18,
+                                ),
+                                const SizedBox(width: 6),
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      "TABLE",
+                                      style: TextStyle(
+                                        fontSize: 8,
+                                        fontWeight: FontWeight.w800,
+                                        color: Colors.grey.shade500,
+                                        letterSpacing: 0.5,
+                                      ),
                                     ),
-                                  ),
-                                  Text(
-                                    widget.tableId
-                                        .replaceAll('table_', '')
-                                        .replaceAll('t', ''),
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w900,
-                                      color: Color(0xFF1A1B2F),
+                                    Text(
+                                      widget.tableId
+                                          .replaceAll('table_', '')
+                                          .replaceAll('t', ''),
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w900,
+                                        color: Color(0xFF1A1B2F),
+                                      ),
                                     ),
-                                  ),
-                                ],
-                              ),
-                            ],
+                                  ],
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ],
@@ -2942,7 +2995,7 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                     ),
                     const SizedBox(height: 20),
 
-                    // Variants List
+                    // 1. Variants List
                     if (item.variants.isNotEmpty) ...[
                       const Text(
                         "Select Variant",
@@ -2958,39 +3011,83 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                           color: Colors.white,
                           border: Border.all(
                             color: Colors.black.withValues(alpha: 0.08),
-                          ), // Premium light border
+                          ),
                           borderRadius: BorderRadius.circular(12),
-                        ),
+                        ), // 🌟 FIX: BoxDecoration correctly closed here
                         child: Column(
+                          // 🌟 FIX: Cleaned up the 'child' typo
                           children: item.variants.entries.map((entry) {
-                            return RadioListTile<String>(
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                              ), // Box ke andar breathing space
-                              activeColor: Colors.deepPurple,
-                              title: Text(
-                                entry.key,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 14,
-                                ),
-                              ),
-                              secondary: Text(
-                                "₹${entry.value}",
-                                style: const TextStyle(
-                                  color: Colors.deepPurple,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 13,
-                                ),
-                              ),
-                              value: entry.key,
-                              groupValue: selectedVariant,
-                              onChanged: (String? value) {
-                                setModalState(() {
-                                  selectedVariant = value;
-                                });
-                                setState(() {}); // Parent state sync
+                            bool isSelected = selectedVariant == entry.key;
+                            return GestureDetector(
+                              onTap: () {
+                                setModalState(
+                                  () => selectedVariant = entry.key,
+                                );
+                                setState(() {});
                               },
+                              child: Container(
+                                margin: const EdgeInsets.only(bottom: 12),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 14,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: isSelected
+                                      ? Colors.deepPurple.withAlpha(15)
+                                      : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: isSelected
+                                        ? Colors.deepPurple
+                                        : Colors.grey.shade300,
+                                    width: isSelected ? 1.5 : 1.0,
+                                  ),
+                                ),
+                                child: Row(
+                                  children: [
+                                    SizedBox(
+                                      height: 24,
+                                      width: 24,
+                                      child: Radio<String>(
+                                        value: entry.key,
+                                        groupValue: selectedVariant,
+                                        activeColor: Colors.deepPurple,
+                                        onChanged: (val) {
+                                          setModalState(
+                                            () => selectedVariant = val,
+                                          );
+                                          setState(() {});
+                                        },
+                                      ),
+                                    ),
+                                    const SizedBox(width: 14),
+                                    Expanded(
+                                      child: Text(
+                                        entry.key,
+                                        style: TextStyle(
+                                          fontWeight: isSelected
+                                              ? FontWeight.w800
+                                              : FontWeight.w600,
+                                          fontSize: 14,
+                                          color: isSelected
+                                              ? Colors.deepPurple.shade900
+                                              : Colors.black87,
+                                        ),
+                                      ),
+                                    ),
+                                    Text(
+                                      "₹${entry.value}",
+                                      style: TextStyle(
+                                        color: isSelected
+                                            ? Colors.deepPurple
+                                            : Colors.black54,
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             );
                           }).toList(),
                         ),
@@ -3019,39 +3116,87 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                         ),
                         child: Column(
                           children: item.addOns.entries.map((entry) {
-                            return CheckboxListTile(
-                              controlAffinity: ListTileControlAffinity
-                                  .leading, // SWAP: Checkbox Left mein aur Price Right mein
-                              activeColor: Colors.deepPurple,
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                              ), // Box ke andar breathing space
-                              title: Text(
-                                entry.key,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 14,
-                                ),
-                              ),
-                              secondary: Text(
-                                "₹${entry.value}",
-                                style: const TextStyle(
-                                  color: Colors.deepPurple,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 13,
-                                ),
-                              ),
-                              value: selectedAddOns.contains(entry.key),
-                              onChanged: (bool? selected) {
+                            bool isSelected = selectedAddOns.contains(
+                              entry.key,
+                            );
+                            return GestureDetector(
+                              onTap: () {
                                 setModalState(() {
-                                  if (selected == true) {
-                                    selectedAddOns.add(entry.key);
-                                  } else {
+                                  if (isSelected) {
                                     selectedAddOns.remove(entry.key);
+                                  } else {
+                                    selectedAddOns.add(entry.key);
                                   }
                                 });
-                                setState(() {}); // Parent state sync
+                                setState(() {});
                               },
+                              child: Container(
+                                margin: const EdgeInsets.only(bottom: 12),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 14,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: isSelected
+                                      ? Colors.deepPurple.withAlpha(10)
+                                      : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: isSelected
+                                        ? Colors.deepPurple.withAlpha(150)
+                                        : Colors.grey.shade300,
+                                    width: isSelected ? 1.5 : 1.0,
+                                  ),
+                                ),
+                                child: Row(
+                                  children: [
+                                    SizedBox(
+                                      height: 24,
+                                      width: 24,
+                                      child: Checkbox(
+                                        value: isSelected,
+                                        activeColor: Colors.deepPurple,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            4,
+                                          ),
+                                        ),
+                                        onChanged: (val) {
+                                          setModalState(() {
+                                            if (val == true) {
+                                              selectedAddOns.add(entry.key);
+                                            } else {
+                                              selectedAddOns.remove(entry.key);
+                                            }
+                                          });
+                                          setState(() {});
+                                        },
+                                      ),
+                                    ),
+                                    const SizedBox(width: 14),
+                                    Expanded(
+                                      child: Text(
+                                        entry.key,
+                                        style: TextStyle(
+                                          fontWeight: isSelected
+                                              ? FontWeight.w800
+                                              : FontWeight.w600,
+                                          fontSize: 14,
+                                          color: Colors.black87,
+                                        ),
+                                      ),
+                                    ),
+                                    Text(
+                                      "+ ₹${entry.value}",
+                                      style: const TextStyle(
+                                        color: Colors.deepPurple,
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             );
                           }).toList(),
                         ),
