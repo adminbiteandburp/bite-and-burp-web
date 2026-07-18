@@ -268,14 +268,19 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
         .listen((snapshot) {
           if (!mounted) return;
 
-          // Jab POS table ko free kare, remote wipeout chalao!
-          if (!snapshot.exists || snapshot.data()?['status'] == 'Available') {
-            if (customerName.isNotEmpty ||
-                cart.isNotEmpty ||
-                placedOrders.isNotEmpty) {
+          final data = snapshot.data() as Map<String, dynamic>?;
+          // Dono fields check karo: POS app wala 'isOccupied' bhi aur string 'status' bhi
+          final isTableFree =
+              data == null ||
+              data['isOccupied'] == false ||
+              data['status'] == 'Available';
+
+          if (isTableFree) {
+            // Sirf tabhi wipe karo jab order actually place ho chuka ho (yani session actually khatam hua ho)
+            // Taki sirf cart banate waqt refresh karne se data na ude!
+            if (placedOrders.isNotEmpty) {
               _clearSessionData();
 
-              // Optional: Settle hone ke baad Snack bar dikhana
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
                   content: Text("Table session closed. Thank you for dining!"),
@@ -937,6 +942,15 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
             'status': 'Sent to Kitchen',
             'time': FieldValue.serverTimestamp(),
           });
+
+      // 🌟 INSTANT TABLE LOCK: Web app khud bhi table ko occupied mark karega
+      // Taaki refresh karne par race-condition ki wajah se session na ude
+      await FirebaseFirestore.instance
+          .collection('restaurants')
+          .doc(widget.hotelId)
+          .collection('tables')
+          .doc(widget.tableId)
+          .update({'isOccupied': true, 'status': 'Occupied'});
     } catch (e) {
       debugPrint("Firebase sync issue, continuing locally: $e");
     }
