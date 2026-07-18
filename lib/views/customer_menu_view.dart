@@ -36,12 +36,12 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
     _fetchLiveMenu(); // 🌟 Bridge Connect: Live data fetch start
   }
 
-  // 🌟 FETCH LIVE MENU FROM FIRESTORE
+  // 🌟 FETCH LIVE MENU FROM FIRESTORE (SAFE PARSING)
   void _fetchLiveMenu() {
     FirebaseFirestore.instance
         .collection('restaurants')
-        .doc(widget.hotelId) // Same ID matching the App
-        .collection('products') // App schema matched
+        .doc(widget.hotelId)
+        .collection('products')
         .snapshots()
         .listen((snapshot) {
           if (!mounted) return;
@@ -51,33 +51,74 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
           for (var doc in snapshot.docs) {
             var data = doc.data();
 
-            // Safely parsing variants and addons to avoid type errors
             Map<String, double> parsedVariants = {};
             if (data['variants'] != null) {
-              (data['variants'] as Map).forEach(
-                (k, v) => parsedVariants[k.toString()] = (v as num).toDouble(),
-              );
+              try {
+                if (data['variants'] is Map) {
+                  (data['variants'] as Map).forEach(
+                    (k, v) => parsedVariants[k.toString()] =
+                        double.tryParse(v.toString()) ?? 0.0,
+                  );
+                } else if (data['variants'] is List) {
+                  for (var v in data['variants']) {
+                    if (v is Map && v['name'] != null && v['price'] != null) {
+                      parsedVariants[v['name'].toString()] =
+                          double.tryParse(v['price'].toString()) ?? 0.0;
+                    }
+                  }
+                }
+              } catch (e) {
+                debugPrint('Variant parse error: $e');
+              }
             }
 
             Map<String, double> parsedAddons = {};
-            if (data['addons'] != null) {
-              (data['addons'] as Map).forEach(
-                (k, v) => parsedAddons[k.toString()] = (v as num).toDouble(),
-              );
+            final addonData = data['addons'] ?? data['addOns'];
+            if (addonData != null) {
+              try {
+                if (addonData is Map) {
+                  (addonData as Map).forEach(
+                    (k, v) => parsedAddons[k.toString()] =
+                        double.tryParse(v.toString()) ?? 0.0,
+                  );
+                } else if (addonData is List) {
+                  for (var a in addonData) {
+                    if (a is Map && a['name'] != null && a['price'] != null) {
+                      parsedAddons[a['name'].toString()] =
+                          double.tryParse(a['price'].toString()) ?? 0.0;
+                    }
+                  }
+                }
+              } catch (e) {
+                debugPrint('Addon parse error: $e');
+              }
+            }
+
+            // Safe Price parsing
+            double safePrice = 0.0;
+            if (data['price'] != null) {
+              safePrice = double.tryParse(data['price'].toString()) ?? 0.0;
+            }
+
+            // Safe Veg parsing
+            bool safeVeg = true;
+            if (data['isVeg'] != null) {
+              safeVeg = data['isVeg'].toString().toLowerCase() == 'true';
+            } else if (data['dietaryPref'] != null) {
+              safeVeg =
+                  data['dietaryPref'].toString().toLowerCase() != 'non-veg';
             }
 
             fetchedItems.add(
               MenuItem(
                 id: doc.id,
                 name: data['name'] ?? 'Unknown Item',
-                price: (data['price'] ?? 0).toDouble(),
+                price: safePrice,
                 description: data['description'] ?? '',
-                calories: data['calories'] ?? '',
-                weight: data['weight'] ?? '',
-                isVeg:
-                    data['dietaryPref'] !=
-                    'Non-Veg', // Mapping dietary preference from App
-                category: data['categoryId'] ?? 'Others',
+                calories: data['calories']?.toString() ?? '',
+                weight: data['weight']?.toString() ?? '',
+                isVeg: safeVeg,
+                category: data['categoryId'] ?? data['category'] ?? 'Others',
                 variants: parsedVariants,
                 addOns: parsedAddons,
               ),
@@ -85,7 +126,7 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
           }
 
           setState(() {
-            dummyItems = fetchedItems; // UI Live update ho jayega
+            dummyItems = fetchedItems;
           });
         });
   }
@@ -346,10 +387,17 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
     Navigator.pop(context); // Close Cart Drawer
     setState(() => isPlacingOrder = true);
 
-    Map<String, int> safeItems = Map<String, int>.from(cart);
+    // 🌟 NAYA LOGIC: Ab sirf quantity nahi, balki price aur customer notes bhi App ko jayenge
+    Map<String, dynamic> detailedItems = {};
+    cart.forEach((itemName, qty) {
+      detailedItems[itemName] = {
+        'quantity': qty,
+        'price': itemPrices[itemName],
+        'note': itemNotes[itemName] ?? "",
+      };
+    });
 
     try {
-      // Push exactly matching schema expected by POS App MenuProvider
       await FirebaseFirestore.instance
           .collection('restaurants')
           .doc(widget.hotelId)
@@ -358,8 +406,11 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
             'tableId': widget.tableId,
             'tableName': 'Table ${widget.tableId}',
             'totalAmount': cartTotal,
-            'items': safeItems,
-            'time': DateTime.now().toIso8601String(),
+            'items': detailedItems, // Bhejte waqt detailed data bhejenge
+            'overallNote': overallNote, // Chef ke liye overall instruction
+            'status':
+                'Sent to Kitchen', // 🌟 YAHI WO CHHEEZ HAI JISSE APP MEIN KOT AAYEGA
+            'time': FieldValue.serverTimestamp(), // Exact server ka time
           });
     } catch (e) {
       debugPrint("Firebase sync issue, continuing locally: $e");
@@ -368,26 +419,26 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
     setState(() {
       placedOrders.add({
         'orderId': '#${placedOrders.length + 1}',
-        'items': safeItems,
+        'items': cart, // UI mein dikhane ke liye normal cart
         'status': 'Sent to Kitchen',
         'subtotal': cartTotal,
       });
       cart.clear();
       itemNotes.clear();
-    });
-    await _saveSessionData(); // 🔥 Instantly saves after placing order
-    showNoteField.clear();
-    overallNote = "";
-    showOverallNote = false;
-    setState(() {
+      showNoteField.clear();
+      overallNote = "";
+      showOverallNote = false;
       isPlacingOrder = false;
       billRequested = false; // Reset bill status for new order
       currentStep = 2; // Move to Orders
       _currentIndex = 2;
     });
 
+    await _saveSessionData(); // 🔥 Instantly saves after placing order
+
     if (!mounted) return;
 
+    // Tumhara wahi purana same-to-same Popup Animation
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -440,12 +491,32 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
     );
   }
 
-  void _requestBill() {
+  Future<void> _requestBill() async {
     setState(() => billRequested = true);
+
+    try {
+      // Create a specific trigger in live_orders for the POS app to notice
+      await FirebaseFirestore.instance
+          .collection('restaurants')
+          .doc(widget.hotelId)
+          .collection('live_orders')
+          .add({
+            'tableId': widget.tableId,
+            'tableName': 'Table ${widget.tableId}',
+            'type': 'bill_request',
+            'status': 'Bill Requested', // Triggers App popup
+            'totalAmount': grandTotal,
+            'time': FieldValue.serverTimestamp(),
+          });
+    } catch (e) {
+      debugPrint("Bill request error: $e");
+    }
+
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text("Bill Requested! Please wait."),
-        backgroundColor: Colors.deepPurple,
+        content: Text("Bill Requested! The waiter is coming."),
+        backgroundColor: Colors.green,
         behavior: SnackBarBehavior.floating,
       ),
     );
@@ -956,6 +1027,7 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                                   ),
                                 ),
                               ),
+                              // 🌟 DYNAMIC LOGO IN CENTER RING 🌟
                               Center(
                                 child: Container(
                                   width: 80,
@@ -971,12 +1043,51 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                                       ),
                                     ],
                                   ),
-                                  child: const Center(
-                                    child: Icon(
-                                      Icons.restaurant_rounded,
-                                      color: Color(0xFF673AB7),
-                                      size: 38,
-                                    ),
+                                  child: StreamBuilder<DocumentSnapshot>(
+                                    stream: FirebaseFirestore.instance
+                                        .collection('restaurants')
+                                        .doc(widget.hotelId)
+                                        .snapshots(),
+                                    builder: (context, snapshot) {
+                                      String logoUrl = "";
+                                      if (snapshot.hasData &&
+                                          snapshot.data!.exists) {
+                                        final data =
+                                            snapshot.data!.data()
+                                                as Map<String, dynamic>?;
+                                        if (data != null) {
+                                          logoUrl =
+                                              data['website_logo_url'] ??
+                                              data['logo'] ??
+                                              "";
+                                        }
+                                      }
+                                      return logoUrl.isNotEmpty
+                                          ? ClipOval(
+                                              child: Image.network(
+                                                logoUrl,
+                                                fit: BoxFit.cover,
+                                                errorBuilder: (c, e, s) =>
+                                                    const Center(
+                                                      child: Icon(
+                                                        Icons
+                                                            .restaurant_rounded,
+                                                        color: Color(
+                                                          0xFF673AB7,
+                                                        ),
+                                                        size: 38,
+                                                      ),
+                                                    ),
+                                              ),
+                                            )
+                                          : const Center(
+                                              child: Icon(
+                                                Icons.restaurant_rounded,
+                                                color: Color(0xFF673AB7),
+                                                size: 38,
+                                              ),
+                                            );
+                                    },
                                   ),
                                 ),
                               ),
