@@ -19,6 +19,7 @@ class _WaiterMenuViewState extends State<WaiterMenuView> {
   List<Map<String, dynamic>> liveMenu = [];
   List<String> categories = ["All"];
   String selectedCategory = "All";
+  Map<String, String> categoryNameMap = {};
 
   @override
   void initState() {
@@ -27,6 +28,30 @@ class _WaiterMenuViewState extends State<WaiterMenuView> {
   }
 
   void _fetchLiveMenu() {
+    // 🌟 Listen to Categories collection to map Category IDs to human-readable names
+    FirebaseFirestore.instance
+        .collection('restaurants')
+        .doc(widget.hotelId)
+        .collection('categories')
+        .snapshots()
+        .listen((catSnapshot) {
+          Map<String, String> newCategoryMap = {};
+          for (var doc in catSnapshot.docs) {
+            var cData = doc.data();
+            String name =
+                cData['name'] ??
+                cData['categoryName'] ??
+                cData['title'] ??
+                doc.id;
+            newCategoryMap[doc.id] = name;
+          }
+          if (mounted) {
+            setState(() {
+              categoryNameMap = newCategoryMap;
+            });
+          }
+        });
+
     FirebaseFirestore.instance
         .collection('restaurants')
         .doc(widget.hotelId)
@@ -40,19 +65,26 @@ class _WaiterMenuViewState extends State<WaiterMenuView> {
 
           // 🌟 FIX: Fetching 100% REAL data from Firestore documents
           for (var doc in snapshot.docs) {
-            var data = doc.data();
+            var data = Map<String, dynamic>.from(doc.data());
             data['id'] = doc.id;
 
+            // 🌟 Category Name Resolution Logic
+            String rawId = (data['categoryId'] ?? '').toString().trim();
+            String rawCat = (data['category'] ?? '').toString().trim();
+            String resolvedCategory =
+                data['categoryName'] ??
+                categoryNameMap[rawId] ??
+                categoryNameMap[rawCat] ??
+                (rawCat.isNotEmpty && rawCat != rawId ? rawCat : null) ??
+                (rawCat.isNotEmpty
+                    ? rawCat
+                    : (rawId.isNotEmpty ? rawId : 'Others'));
+
+            data['category'] = resolvedCategory;
             fetchedItems.add(data);
 
-            // Dynamic Categories generate karna based on live items
-            if (data['category'] != null &&
-                data['category'].toString().trim().isNotEmpty) {
-              catSet.add(data['category'].toString().trim());
-            } else if (data['categoryId'] != null &&
-                data['categoryId'].toString().trim().isNotEmpty) {
-              // Fallback if you use categoryId
-              catSet.add(data['categoryId'].toString().trim());
+            if (resolvedCategory.isNotEmpty) {
+              catSet.add(resolvedCategory);
             }
           }
 
@@ -548,9 +580,7 @@ class _WaiterMenuViewState extends State<WaiterMenuView> {
                       const SizedBox(height: 8),
                       Column(
                         children: addOnsMap.entries.map((entry) {
-                          bool isSelected = selectedAddOns.contains(
-                            entry.key,
-                          );
+                          bool isSelected = selectedAddOns.contains(entry.key);
                           return GestureDetector(
                             onTap: () {
                               setModalState(() {
@@ -588,9 +618,7 @@ class _WaiterMenuViewState extends State<WaiterMenuView> {
                                       value: isSelected,
                                       activeColor: Colors.deepPurple,
                                       shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(
-                                          4,
-                                        ),
+                                        borderRadius: BorderRadius.circular(4),
                                       ),
                                       onChanged: (val) {
                                         setModalState(() {

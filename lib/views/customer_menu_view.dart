@@ -31,6 +31,10 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
   List<String> selectedAddOns = [];
   Map<String, String> categoryNameMap = {};
 
+  // 🌟 CUSTOMER SESSION VARIABLES
+  String customerName = "";
+  String customerPhone = "";
+
   @override
   void initState() {
     super.initState();
@@ -183,6 +187,10 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
       'placedOrders_${widget.tableId}',
       jsonEncode(placedOrders),
     );
+
+    // Save session credentials
+    await prefs.setString('custName_${widget.tableId}', customerName);
+    await prefs.setString('custPhone_${widget.tableId}', customerPhone);
   }
 
   // 💾 LOADING LOGIC: Restores data if browser refreshes
@@ -192,7 +200,13 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
     final savedPrices = prefs.getString('itemPrices_${widget.tableId}');
     final savedOrders = prefs.getString('placedOrders_${widget.tableId}');
 
+    final savedName = prefs.getString('custName_${widget.tableId}');
+    final savedPhone = prefs.getString('custPhone_${widget.tableId}');
+
     setState(() {
+      if (savedName != null) customerName = savedName;
+      if (savedPhone != null) customerPhone = savedPhone;
+
       if (savedCart != null) {
         final decodedMap = jsonDecode(savedCart) as Map<String, dynamic>;
         cart = decodedMap.map((key, value) => MapEntry(key, value as int));
@@ -219,6 +233,10 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
     await prefs.remove('itemPrices_${widget.tableId}');
     await prefs.remove('placedOrders_${widget.tableId}');
 
+    // Clear session credentials remotely
+    await prefs.remove('custName_${widget.tableId}');
+    await prefs.remove('custPhone_${widget.tableId}');
+
     if (mounted) {
       setState(() {
         cart.clear();
@@ -228,6 +246,13 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
         placedOrders.clear();
         billRequested = false;
         overallNote = "";
+        customerName = "";
+        customerPhone = "";
+
+        // Welcome screen par push kardo!
+        currentStep = 0;
+        _currentIndex = 0;
+        isWelcomeScreen = true;
       });
     }
   }
@@ -243,9 +268,22 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
         .listen((snapshot) {
           if (!mounted) return;
 
-          // Agar table document delete ho gaya ya status wapas 'Available' ho gaya
+          // Jab POS table ko free kare, remote wipeout chalao!
           if (!snapshot.exists || snapshot.data()?['status'] == 'Available') {
-            _clearSessionData(); // Table reset hui toh customer ka UI bhi reset kardo!
+            if (customerName.isNotEmpty ||
+                cart.isNotEmpty ||
+                placedOrders.isNotEmpty) {
+              _clearSessionData();
+
+              // Optional: Settle hone ke baad Snack bar dikhana
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text("Table session closed. Thank you for dining!"),
+                  backgroundColor: Colors.blueAccent,
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            }
           }
         });
   }
@@ -416,6 +454,53 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                               color: Colors.deepPurple,
                             ),
                           ),
+                        ),
+                      ],
+                      // 🌟 COMPACT CALORIES & WEIGHT UI (Displays when expanded)
+                      if (isExpanded &&
+                          (item.calories.isNotEmpty ||
+                              item.weight.isNotEmpty)) ...[
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            if (item.calories.isNotEmpty) ...[
+                              Icon(
+                                Icons.local_fire_department,
+                                size: 14,
+                                color: Colors.orange.shade700,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                item.calories.contains('kcal')
+                                    ? item.calories
+                                    : "${item.calories} kcal",
+                                style: GoogleFonts.poppins(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                  color: Colors.grey.shade700,
+                                ),
+                              ),
+                            ],
+                            if (item.calories.isNotEmpty &&
+                                item.weight.isNotEmpty)
+                              const SizedBox(width: 12),
+                            if (item.weight.isNotEmpty) ...[
+                              Icon(
+                                Icons.scale,
+                                size: 14,
+                                color: Colors.blue.shade600,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                item.weight,
+                                style: GoogleFonts.poppins(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                  color: Colors.grey.shade700,
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                       ],
                     ],
@@ -641,10 +726,192 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
   }
 
   Future<void> _placeOrderFinal() async {
-    Navigator.pop(context); // Close Cart Drawer
+    Navigator.pop(context); // Pehle cart band karo
+
+    // 🌟 THE SESSION INTERCEPTOR 🌟
+    // Agar Naam ya Number missing hai, toh pehle popup dikhao
+    if (customerName.isEmpty || customerPhone.isEmpty) {
+      _showCustomerDetailsPopup();
+      return;
+    }
+
+    // Agar session set hai, toh order aage badhao
+    _processOrderToFirestore();
+  }
+
+  // 🌟 NAYA FUNCTION: Bottom Sheet for Name & Number
+  void _showCustomerDetailsPopup() {
+    TextEditingController nameController = TextEditingController();
+    TextEditingController phoneController = TextEditingController();
+    bool isLoading = false;
+    String errorMsg = "";
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      isDismissible: false,
+      enableDrag: false,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setModalState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(context).viewInsets.bottom,
+                left: 25,
+                right: 25,
+                top: 30,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    "Almost there! 🍽️",
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w900,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    "Please enter your details to place this order.",
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey.shade500,
+                    ),
+                  ),
+                  const SizedBox(height: 25),
+
+                  // Name Field
+                  TextField(
+                    controller: nameController,
+                    decoration: InputDecoration(
+                      hintText: "Enter your name",
+                      prefixIcon: const Icon(
+                        Icons.person_rounded,
+                        color: Colors.deepPurple,
+                      ),
+                      filled: true,
+                      fillColor: Colors.black.withAlpha(10),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(15),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 15),
+
+                  // Phone Field
+                  TextField(
+                    controller: phoneController,
+                    keyboardType: TextInputType.phone,
+                    maxLength: 10,
+                    decoration: InputDecoration(
+                      hintText: "10-digit mobile number",
+                      counterText: "",
+                      prefixIcon: const Icon(
+                        Icons.phone_iphone_rounded,
+                        color: Colors.deepPurple,
+                      ),
+                      filled: true,
+                      fillColor: Colors.black.withAlpha(10),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(15),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
+
+                  if (errorMsg.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    Text(
+                      errorMsg,
+                      style: const TextStyle(
+                        color: Colors.redAccent,
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+
+                  const SizedBox(height: 30),
+
+                  // Submit Button
+                  SizedBox(
+                    width: double.infinity,
+                    height: 55,
+                    child: ElevatedButton(
+                      onPressed: isLoading
+                          ? null
+                          : () async {
+                              String n = nameController.text.trim();
+                              String p = phoneController.text.trim();
+
+                              if (n.isEmpty) {
+                                setModalState(
+                                  () => errorMsg = "Name cannot be empty.",
+                                );
+                                return;
+                              }
+                              if (p.length != 10 ||
+                                  !RegExp(r'^[6-9]\d{9}$').hasMatch(p)) {
+                                setModalState(
+                                  () => errorMsg =
+                                      "Enter a valid 10-digit Indian number.",
+                                );
+                                return;
+                              }
+
+                              setModalState(() => isLoading = true);
+
+                              // Session Save Karo
+                              setState(() {
+                                customerName = n;
+                                customerPhone = p;
+                              });
+                              await _saveSessionData();
+
+                              Navigator.pop(ctx); // Close Modal
+                              _processOrderToFirestore(); // Proceed to Order
+                            },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.deepPurple,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(15),
+                        ),
+                      ),
+                      child: isLoading
+                          ? const CircularProgressIndicator(color: Colors.white)
+                          : const Text(
+                              "Confirm & Place Order",
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w900,
+                                fontSize: 16,
+                              ),
+                            ),
+                    ),
+                  ),
+                  const SizedBox(height: 25),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // 🌟 NAYA FUNCTION: Actual Firestore Database Pushing Logic
+  Future<void> _processOrderToFirestore() async {
     setState(() => isPlacingOrder = true);
 
-    // 🌟 NAYA LOGIC: Ab sirf quantity nahi, balki price aur customer notes bhi App ko jayenge
     Map<String, dynamic> detailedItems = {};
     cart.forEach((itemName, qty) {
       detailedItems[itemName] = {
@@ -662,12 +929,13 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
           .add({
             'tableId': widget.tableId,
             'tableName': 'Table ${widget.tableId}',
+            'customerName': customerName, // Session data pass
+            'customerPhone': customerPhone, // Session data pass
             'totalAmount': cartTotal,
-            'items': detailedItems, // Bhejte waqt detailed data bhejenge
-            'overallNote': overallNote, // Chef ke liye overall instruction
-            'status':
-                'Sent to Kitchen', // 🌟 YAHI WO CHHEEZ HAI JISSE APP MEIN KOT AAYEGA
-            'time': FieldValue.serverTimestamp(), // Exact server ka time
+            'items': detailedItems,
+            'overallNote': overallNote,
+            'status': 'Sent to Kitchen',
+            'time': FieldValue.serverTimestamp(),
           });
     } catch (e) {
       debugPrint("Firebase sync issue, continuing locally: $e");
