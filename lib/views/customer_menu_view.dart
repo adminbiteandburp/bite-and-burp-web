@@ -3,6 +3,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:convert';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class CustomerMenuView extends StatefulWidget {
@@ -32,8 +33,9 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
   @override
   void initState() {
     super.initState();
-    _loadSessionData();
+    _loadSessionData(); // 💾 Restore session on startup
     _fetchLiveMenu(); // 🌟 Bridge Connect: Live data fetch start
+    _listenToTableStatus(); // 🌟 FIX: Start listening to the table's live status
   }
 
   // 🌟 FETCH LIVE MENU FROM FIRESTORE (SAFE PARSING)
@@ -172,6 +174,44 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
     });
   }
 
+  // 🧹 AUTO-CLEANUP: Jab admin table khali kare toh web app apne aap saaf ho jaye
+  Future<void> _clearSessionData() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('cart_${widget.tableId}');
+    await prefs.remove('itemPrices_${widget.tableId}');
+    await prefs.remove('placedOrders_${widget.tableId}');
+
+    if (mounted) {
+      setState(() {
+        cart.clear();
+        itemPrices.clear();
+        itemNotes.clear();
+        showNoteField.clear();
+        placedOrders.clear();
+        billRequested = false;
+        overallNote = "";
+      });
+    }
+  }
+
+  // 🌟 REAL-TIME TABLE STATUS LISTENER
+  void _listenToTableStatus() {
+    FirebaseFirestore.instance
+        .collection('restaurants')
+        .doc(widget.hotelId)
+        .collection('tables')
+        .doc(widget.tableId)
+        .snapshots()
+        .listen((snapshot) {
+          if (!mounted) return;
+
+          // Agar table document delete ho gaya ya status wapas 'Available' ho gaya
+          if (!snapshot.exists || snapshot.data()?['status'] == 'Available') {
+            _clearSessionData(); // Table reset hui toh customer ka UI bhi reset kardo!
+          }
+        });
+  }
+
   // 🌟 LIVE MENU DATA LIST
   List<MenuItem> dummyItems =
       []; // Ab yeh khali rahega aur Firestore se dynamically bharega
@@ -183,73 +223,6 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
     }
     return cats.toList();
   }
-
-  List<MenuItem> get filteredDummyItems {
-    return dummyItems.where((item) {
-      final matchesCategory =
-          selectedCategory == "All" || item.category == selectedCategory;
-      final matchesSearch = item.name.toLowerCase().contains(
-        searchQuery.toLowerCase(),
-      );
-      return matchesCategory && matchesSearch;
-    }).toList();
-  }
-
-  // 🌟 DUMMY MENU DATA
-  final List<Map<String, dynamic>> dummyCategories = [
-    {"name": "All", "icon": Icons.restaurant_menu},
-    {"name": "Bestsellers", "icon": Icons.star_rounded},
-    {"name": "Burgers", "icon": Icons.fastfood_rounded},
-    {"name": "Pizza", "icon": Icons.local_pizza_rounded},
-    {"name": "Beverages", "icon": Icons.local_cafe_rounded},
-  ];
-
-  final List<Map<String, dynamic>> dummyMenu = [
-    {
-      "name": "Nutella Brownie",
-      "price": 150.0,
-      "category": "Bestsellers",
-      "type": "veg",
-      "calories": "450 kcal",
-      "weight": "120g",
-      "desc": "Rich chocolate brownie.",
-      "img":
-          "https://images.unsplash.com/photo-1606313564200-e75d5e30476c?w=500&q=60",
-    },
-    {
-      "name": "Cheese Burger",
-      "price": 199.0,
-      "category": "Burgers",
-      "type": "non-veg",
-      "calories": "650 kcal",
-      "weight": "250g",
-      "desc": "Juicy chicken patty.",
-      "img":
-          "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=500&q=60",
-    },
-    {
-      "name": "Margherita Pizza",
-      "price": 299.0,
-      "category": "Pizza",
-      "type": "veg",
-      "calories": "800 kcal",
-      "weight": "350g",
-      "desc": "Classic delight.",
-      "img":
-          "https://images.unsplash.com/photo-1574071318508-1cdbab80d002?w=500&q=60",
-    },
-    {
-      "name": "Cold Coffee",
-      "price": 149.0,
-      "category": "Beverages",
-      "type": "veg",
-      "calories": "280 kcal",
-      "weight": "300ml",
-      "desc": "Chilled blended coffee.",
-      "img":
-          "https://images.unsplash.com/photo-1517701604599-bb29b565090c?w=500&q=60",
-    },
-  ];
 
   // 🌟 CART & SESSION STATE
   Map<String, int> cart = {};
@@ -283,6 +256,252 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
       total += ((order['subtotal'] ?? 0.0) as num).toDouble();
     }
     return total;
+  }
+
+  // 🌟 NAYA FUNCTION: Premium Item Card Builder (Saffron Bistro Style)
+  Widget _buildPremiumItemCard(dynamic item, int qty) {
+    bool isExpanded = false; // 🌟 FIX: Local state variable for Read More
+
+    return StatefulBuilder(
+      builder: (context, setCardState) {
+        return Container(
+          margin: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 10,
+          ), // 🌟 FIX: Tighter outer margin
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(
+              color: Colors.deepPurple.withOpacity(0.25),
+              width: 1.8,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.04),
+                blurRadius: 15,
+                offset: const Offset(0, 5),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // 1. LARGE FULL-WIDTH IMAGE
+              Stack(
+                children: [
+                  ClipRRect(
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(24),
+                    ),
+                    child: SizedBox(
+                      width: double.infinity,
+                      height: 125,
+                      child: getSmartIcon(item.name),
+                    ),
+                  ),
+                  // Veg/Non-Veg Tag on Image
+                  Positioned(
+                    top: 15,
+                    left: 15,
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(8),
+                        boxShadow: const [
+                          BoxShadow(color: Colors.black12, blurRadius: 4),
+                        ],
+                      ),
+                      child: Icon(
+                        Icons.circle,
+                        size: 14,
+                        color: item.isVeg ? Colors.green : Colors.red,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+
+              // 2. ITEM DETAILS & ACTIONS
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  16,
+                  12,
+                  16,
+                  14,
+                ), // 🌟 FIX: Tighter inner padding
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item.name,
+                      style: GoogleFonts.cormorantGaramond(
+                        // 🌟 FIX: Premium Heading Font
+                        fontSize: 22,
+                        fontWeight: FontWeight.w700,
+                        color: const Color(0xFF1A1B2F),
+                        height: 1.1,
+                      ),
+                    ),
+                    if (item.description != null &&
+                        item.description!.isNotEmpty) ...[
+                      const SizedBox(height: 4), // 🌟 FIX: Reduced gap
+                      Text(
+                        item.description!,
+                        maxLines: isExpanded
+                            ? null
+                            : 2, // 🌟 FIX: Dynamic max lines
+                        overflow: isExpanded
+                            ? TextOverflow.visible
+                            : TextOverflow.ellipsis,
+                        style: GoogleFonts.poppins(
+                          // 🌟 FIX: Premium Body Font
+                          fontSize: 12,
+                          color: Colors.grey.shade600,
+                          height: 1.35,
+                        ),
+                      ),
+                      if (item.description!.length > 50) ...[
+                        const SizedBox(height: 2),
+                        GestureDetector(
+                          onTap: () {
+                            setCardState(() {
+                              isExpanded = !isExpanded; // 🌟 FIX: Toggle logic
+                            });
+                          },
+                          child: Text(
+                            isExpanded ? "Read less" : "Read more...",
+                            style: GoogleFonts.poppins(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.deepPurple,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                    const SizedBox(
+                      height: 8,
+                    ), // 🌟 FIX: Tighter gap above price
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          "₹${item.price.toStringAsFixed(0)}",
+                          style: GoogleFonts.poppins(
+                            // 🌟 FIX: Premium Price/Rupee Font
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                            color: const Color(0xFF1A1B2F),
+                          ),
+                        ),
+
+                        // 3. SMART INLINE ADD / QTY BUTTON (Deep Purple Theme)
+                        qty == 0
+                            ? InkWell(
+                                onTap: () {
+                                  if (item.variants.isNotEmpty ||
+                                      item.addOns.isNotEmpty) {
+                                    showVariantsPopup(item);
+                                  } else {
+                                    _updateCart(item.name, item.price, 1);
+                                  }
+                                },
+                                borderRadius: BorderRadius.circular(30),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 26,
+                                    vertical: 10,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.deepPurple,
+                                    borderRadius: BorderRadius.circular(30),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.deepPurple.withOpacity(
+                                          0.3,
+                                        ),
+                                        blurRadius: 8,
+                                        offset: const Offset(0, 3),
+                                      ),
+                                    ],
+                                  ),
+                                  child: const Text(
+                                    "ADD",
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w900,
+                                      fontSize: 14,
+                                      letterSpacing: 0.5,
+                                    ),
+                                  ),
+                                ),
+                              )
+                            : Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  border: Border.all(
+                                    color: Colors.deepPurple,
+                                    width: 1.5,
+                                  ),
+                                  borderRadius: BorderRadius.circular(30),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.remove,
+                                        color: Colors.deepPurple,
+                                        size: 20,
+                                      ),
+                                      constraints: const BoxConstraints(
+                                        minWidth: 40,
+                                        minHeight: 36,
+                                      ),
+                                      padding: EdgeInsets.zero,
+                                      onPressed: () => _updateCart(
+                                        item.name,
+                                        item.price,
+                                        -1,
+                                      ),
+                                    ),
+                                    Text(
+                                      "$qty",
+                                      style: GoogleFonts.poppins(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w900,
+                                        color: Colors.deepPurple,
+                                      ),
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.add,
+                                        color: Colors.deepPurple,
+                                        size: 20,
+                                      ),
+                                      constraints: const BoxConstraints(
+                                        minWidth: 40,
+                                        minHeight: 36,
+                                      ),
+                                      padding: EdgeInsets.zero,
+                                      onPressed: () =>
+                                          _updateCart(item.name, item.price, 1),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   void _updateCart(String itemName, double price, int change) {
@@ -419,7 +638,9 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
     setState(() {
       placedOrders.add({
         'orderId': '#${placedOrders.length + 1}',
-        'items': cart, // UI mein dikhane ke liye normal cart
+        'items': Map<String, int>.from(
+          cart,
+        ), // 🌟 FIX: Shallow copy create ki taaki original clear hone pe order khali na ho
         'status': 'Sent to Kitchen',
         'subtotal': cartTotal,
       });
@@ -455,6 +676,7 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
             const SizedBox(height: 20),
             const Text(
               "Order Confirmed!",
+              textAlign: TextAlign.center, // 🌟 FIX: Center alignment added
               style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 10),
@@ -515,7 +737,9 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text("Bill Requested! The waiter is coming."),
+        content: Text(
+          "Bill Requested! Please proceed to the counter to pay your bill.",
+        ), // 🌟 FIX: Updated text
         backgroundColor: Colors.green,
         behavior: SnackBarBehavior.floating,
       ),
@@ -595,199 +819,264 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                           bool isNoteOpen = showNoteField[itemName] ?? false;
 
                           return Container(
-                            margin: const EdgeInsets.only(bottom: 20),
+                            margin: const EdgeInsets.only(
+                              bottom: 24,
+                            ), // 🌟 FIX: Updated bottom margin
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
+                                // ✅ YAHAN SE NAYA CODE PASTE KARO ✅
+                                // 🌟 NAYA LAYOUT LINE 1: FULL WIDTH ITEM TITLE
+                                Text(
+                                  itemName,
+                                  style: GoogleFonts.poppins(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 15,
+                                    color: Colors.black87,
+                                    height: 1.3,
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+
+                                // 🌟 NAYA LAYOUT LINE 2: ACTION ROW (Note + Qty + Price)
                                 Row(
                                   mainAxisAlignment:
                                       MainAxisAlignment.spaceBetween,
+                                  crossAxisAlignment: CrossAxisAlignment.center,
                                   children: [
-                                    Expanded(
-                                      child: Text(
-                                        itemName,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w800,
-                                          fontSize: 16,
-                                          color: Colors.black87,
-                                        ),
-                                      ),
-                                    ),
-                                    // Premium Plus Minus Box in Cart (Compact)
-                                    Container(
-                                      height:
-                                          30, // Height reduced for sleekness
-                                      decoration: BoxDecoration(
-                                        color: Colors.white,
-                                        borderRadius: BorderRadius.circular(15),
-                                        border: Border.all(
-                                          color: Colors.deepPurple.withAlpha(
-                                            50,
+                                    // Left Side: "Add note" Button
+                                    (!isNoteOpen &&
+                                            (itemNotes[itemName] ?? "").isEmpty)
+                                        ? InkWell(
+                                            onTap: () => setModalState(
+                                              () => showNoteField[itemName] =
+                                                  true,
+                                            ),
+                                            borderRadius: BorderRadius.circular(
+                                              4,
+                                            ),
+                                            child: Padding(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    vertical: 4,
+                                                    horizontal: 2,
+                                                  ),
+                                              child: Row(
+                                                children: [
+                                                  Icon(
+                                                    Icons.edit_note,
+                                                    size: 16,
+                                                    color: Colors.grey.shade600,
+                                                  ),
+                                                  const SizedBox(width: 4),
+                                                  Text(
+                                                    "Add note",
+                                                    style: GoogleFonts.poppins(
+                                                      color:
+                                                          Colors.grey.shade600,
+                                                      fontWeight:
+                                                          FontWeight.w500,
+                                                      fontSize: 13,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          )
+                                        : const SizedBox.shrink(),
+
+                                    // Right Side: Quantity Toggle + Price
+                                    Row(
+                                      children: [
+                                        // Quantity Toggle [ - 1 + ]
+                                        Container(
+                                          height: 32,
+                                          decoration: BoxDecoration(
+                                            color: Colors.white,
+                                            borderRadius: BorderRadius.circular(
+                                              16,
+                                            ),
+                                            border: Border.all(
+                                              color: Colors.deepPurple
+                                                  .withOpacity(0.3),
+                                            ),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              IconButton(
+                                                icon: const Icon(
+                                                  Icons.remove,
+                                                  size: 16,
+                                                  color: Colors.deepPurple,
+                                                ),
+                                                padding: EdgeInsets.zero,
+                                                constraints:
+                                                    const BoxConstraints(
+                                                      minWidth: 32,
+                                                    ),
+                                                onPressed: () {
+                                                  _updateCart(
+                                                    itemName,
+                                                    price,
+                                                    -1,
+                                                  );
+                                                  setModalState(() {});
+                                                  if (cart.isEmpty)
+                                                    Navigator.pop(context);
+                                                },
+                                              ),
+                                              Text(
+                                                "$qty",
+                                                style: GoogleFonts.poppins(
+                                                  fontWeight: FontWeight.w700,
+                                                  fontSize: 14,
+                                                  color: Colors.deepPurple,
+                                                ),
+                                              ),
+                                              IconButton(
+                                                icon: const Icon(
+                                                  Icons.add,
+                                                  size: 16,
+                                                  color: Colors.deepPurple,
+                                                ),
+                                                padding: EdgeInsets.zero,
+                                                constraints:
+                                                    const BoxConstraints(
+                                                      minWidth: 32,
+                                                    ),
+                                                onPressed: () {
+                                                  _updateCart(
+                                                    itemName,
+                                                    price,
+                                                    1,
+                                                  );
+                                                  setModalState(() {});
+                                                },
+                                              ),
+                                            ],
                                           ),
                                         ),
-                                        // Shadow removed for clean flat SaaS look
-                                      ),
-                                      child: Row(
-                                        children: [
-                                          IconButton(
-                                            icon: const Icon(
-                                              Icons.remove,
-                                              size: 16, // Smaller icon
-                                              color: Colors.deepPurple,
-                                            ),
-                                            padding: EdgeInsets.zero,
-                                            constraints: const BoxConstraints(
-                                              minWidth: 28, // Compact width
-                                            ),
-                                            onPressed: () {
-                                              _updateCart(itemName, price, -1);
-                                              setModalState(() {});
-                                              if (cart.isEmpty)
-                                                Navigator.pop(context);
-                                            },
-                                          ),
-                                          Text(
-                                            "$qty",
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.w900,
-                                              fontSize: 14,
+                                        const SizedBox(width: 14),
+                                        // Price
+                                        SizedBox(
+                                          width: 60,
+                                          child: Text(
+                                            "₹${(price * qty).toStringAsFixed(0)}",
+                                            textAlign: TextAlign.right,
+                                            style: GoogleFonts.poppins(
+                                              fontWeight: FontWeight.w700,
+                                              fontSize: 16,
+                                              color: const Color(0xFF1A1B2F),
                                             ),
                                           ),
-                                          IconButton(
-                                            icon: const Icon(
-                                              Icons.add,
-                                              size: 16, // Smaller icon
-                                              color: Colors.deepPurple,
-                                            ),
-                                            padding: EdgeInsets.zero,
-                                            constraints: const BoxConstraints(
-                                              minWidth: 28, // Compact width
-                                            ),
-                                            onPressed: () {
-                                              _updateCart(itemName, price, 1);
-                                              setModalState(() {});
-                                            },
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                    const SizedBox(width: 10), // Reduced gap
-                                    SizedBox(
-                                      width:
-                                          55, // Reduced width so Item Name gets more space
-                                      child: Text(
-                                        "₹${price * qty}",
-                                        textAlign: TextAlign.right,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w900,
-                                          fontSize: 15,
-                                          color: Colors.deepPurple,
                                         ),
-                                      ),
+                                      ],
                                     ),
                                   ],
                                 ),
-                                if (!isNoteOpen &&
-                                    (itemNotes[itemName] ?? "").isEmpty)
-                                  InkWell(
-                                    onTap: () => setModalState(
-                                      () => showNoteField[itemName] = true,
-                                    ),
-                                    child: Padding(
-                                      padding: const EdgeInsets.only(
-                                        top: 6,
-                                      ), // Slightly tighter padding
-                                      child: Row(
-                                        children: [
-                                          Icon(
-                                            Icons.edit_note,
-                                            size: 15, // Sleeker icon
-                                            color: Colors
-                                                .grey
-                                                .shade600, // Minimal premium color
+
+                                // 🌟 FIX: AnimatedSize for smooth drop down
+                                AnimatedSize(
+                                  duration: const Duration(milliseconds: 250),
+                                  curve: Curves.easeOutCubic,
+                                  child:
+                                      (isNoteOpen ||
+                                          (itemNotes[itemName] ?? "")
+                                              .isNotEmpty)
+                                      ? Padding(
+                                          padding: const EdgeInsets.only(
+                                            top: 10,
                                           ),
-                                          const SizedBox(width: 4),
-                                          Text(
-                                            "Add note",
-                                            style: TextStyle(
-                                              color: Colors
-                                                  .grey
-                                                  .shade700, // Subtle text color
-                                              fontWeight: FontWeight.w600,
-                                              fontSize:
-                                                  12, // Smaller font to not fight with item name
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  )
-                                else
-                                  Padding(
-                                    padding: const EdgeInsets.only(top: 10),
-                                    child: SizedBox(
-                                      height: 40,
-                                      child: TextField(
-                                        autofocus:
-                                            (itemNotes[itemName] ?? "").isEmpty,
-                                        onChanged: (val) =>
-                                            itemNotes[itemName] = val,
-                                        onTapOutside: (_) {
-                                          FocusManager.instance.primaryFocus
-                                              ?.unfocus();
-                                          if ((itemNotes[itemName] ?? "")
-                                              .trim()
-                                              .isEmpty) {
-                                            setModalState(
-                                              () => showNoteField[itemName] =
-                                                  false,
-                                            );
-                                          }
-                                        },
-                                        onSubmitted: (val) {
-                                          if (val.trim().isEmpty) {
-                                            setModalState(
-                                              () => showNoteField[itemName] =
-                                                  false,
-                                            );
-                                          }
-                                        },
-                                        controller:
-                                            TextEditingController(
-                                                text: itemNotes[itemName],
-                                              )
-                                              ..selection =
-                                                  TextSelection.fromPosition(
-                                                    TextPosition(
-                                                      offset:
-                                                          (itemNotes[itemName] ??
-                                                                  "")
-                                                              .length,
-                                                    ),
-                                                  ),
-                                        style: const TextStyle(fontSize: 13),
-                                        decoration: InputDecoration(
-                                          hintText: "E.g. Less spicy...",
-                                          hintStyle: const TextStyle(
-                                            fontSize: 13,
-                                            color: Colors.black38,
-                                          ),
-                                          contentPadding:
-                                              const EdgeInsets.symmetric(
-                                                horizontal: 15,
+                                          child: SizedBox(
+                                            height:
+                                                40, // 🌟 FIX: Fixed height matching all
+                                            child: TextField(
+                                              autofocus:
+                                                  (itemNotes[itemName] ?? "")
+                                                      .isEmpty,
+                                              onChanged: (val) =>
+                                                  itemNotes[itemName] = val,
+                                              onTapOutside: (_) {
+                                                FocusManager
+                                                    .instance
+                                                    .primaryFocus
+                                                    ?.unfocus();
+                                                if ((itemNotes[itemName] ?? "")
+                                                    .trim()
+                                                    .isEmpty) {
+                                                  setModalState(
+                                                    () =>
+                                                        showNoteField[itemName] =
+                                                            false,
+                                                  );
+                                                }
+                                              },
+                                              onSubmitted: (val) {
+                                                if (val.trim().isEmpty) {
+                                                  setModalState(
+                                                    () =>
+                                                        showNoteField[itemName] =
+                                                            false,
+                                                  );
+                                                }
+                                              },
+                                              controller:
+                                                  TextEditingController(
+                                                      text: itemNotes[itemName],
+                                                    )
+                                                    ..selection =
+                                                        TextSelection.fromPosition(
+                                                          TextPosition(
+                                                            offset:
+                                                                (itemNotes[itemName] ??
+                                                                        "")
+                                                                    .length,
+                                                          ),
+                                                        ),
+                                              style: GoogleFonts.poppins(
+                                                fontSize: 13,
                                               ),
-                                          filled: true,
-                                          fillColor: Colors.black.withAlpha(10),
-                                          border: OutlineInputBorder(
-                                            borderRadius: BorderRadius.circular(
-                                              10,
+                                              decoration: InputDecoration(
+                                                hintText: "E.g. Less spicy...",
+                                                hintStyle: GoogleFonts.poppins(
+                                                  fontSize: 13,
+                                                  color: Colors.black38,
+                                                ),
+                                                contentPadding:
+                                                    const EdgeInsets.only(
+                                                      left: 15,
+                                                      right: 5,
+                                                    ), // Tightened right for icon
+                                                filled: true,
+                                                fillColor: Colors.black
+                                                    .withOpacity(0.05),
+                                                border: OutlineInputBorder(
+                                                  borderRadius:
+                                                      BorderRadius.circular(10),
+                                                  borderSide: BorderSide.none,
+                                                ),
+                                                // 🌟 FIX: Premium Close Button added
+                                                suffixIcon: GestureDetector(
+                                                  onTap: () {
+                                                    setModalState(() {
+                                                      itemNotes[itemName] = "";
+                                                      showNoteField[itemName] =
+                                                          false;
+                                                    });
+                                                  },
+                                                  child: const Icon(
+                                                    Icons.close,
+                                                    size: 18,
+                                                    color: Colors.black45,
+                                                  ),
+                                                ),
+                                              ),
                                             ),
-                                            borderSide: BorderSide.none,
                                           ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
+                                        )
+                                      : const SizedBox.shrink(),
+                                ),
                               ],
                             ),
                           );
@@ -795,74 +1084,234 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                       ),
                     ),
                     const Divider(color: Colors.black12, height: 20),
-                    // Slim Overall Instruction Box
-                    if (!showOverallNote && overallNote.isEmpty)
-                      InkWell(
-                        onTap: () =>
-                            setModalState(() => showOverallNote = true),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.comment_outlined,
-                                size: 18,
-                                color: Colors.deepPurple.shade300,
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                "Add cooking instructions",
-                                style: TextStyle(
-                                  color: Colors.deepPurple.shade300,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 14,
+
+                    // 🌟 NAYA FEATURE: Smart Cross-Sell Belt & Compact Note Button
+                    Builder(
+                      builder: (ctx) {
+                        // 1. Live database se items filter karo (10 se 50 rupaye wale)
+                        final crossSellItems = dummyItems
+                            .where(
+                              (item) => item.price >= 10 && item.price <= 50,
+                            )
+                            .toList();
+
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // 🌟 NAYA FIX: Butter Smooth AnimatedCrossFade (Zero Vertical Jump)
+                            AnimatedCrossFade(
+                              duration: const Duration(
+                                milliseconds: 350,
+                              ), // Thoda slow aur premium feel ke liye
+                              firstCurve: Curves.easeInOutCubic,
+                              secondCurve: Curves.easeInOutCubic,
+                              crossFadeState:
+                                  (showOverallNote || overallNote.isNotEmpty)
+                                  ? CrossFadeState
+                                        .showSecond // State 2: TextField Dikhao
+                                  : CrossFadeState
+                                        .showFirst, // State 1: Button + Belt Dikhao
+                              // --- STATE 1: BUTTON & CROSS-SELL BELT ---
+                              firstChild: SizedBox(
+                                height:
+                                    40, // 🌟 FIX: Height exactly 40 par lock ki
+                                child: Row(
+                                  children: [
+                                    // Compact Instruction Button
+                                    InkWell(
+                                      onTap: () => setModalState(
+                                        () => showOverallNote = true,
+                                      ),
+                                      borderRadius: BorderRadius.circular(8),
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 12,
+                                        ),
+                                        alignment: Alignment.center,
+                                        decoration: BoxDecoration(
+                                          color: Colors.deepPurple.withOpacity(
+                                            0.05,
+                                          ),
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                          border: Border.all(
+                                            color: Colors.deepPurple
+                                                .withOpacity(0.2),
+                                          ),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            Icon(
+                                              Icons.edit_note,
+                                              size: 16,
+                                              color: Colors.deepPurple.shade700,
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              "Instructions",
+                                              style: GoogleFonts.poppins(
+                                                color:
+                                                    Colors.deepPurple.shade700,
+                                                fontWeight: FontWeight.w600,
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+
+                                    if (crossSellItems.isNotEmpty)
+                                      const SizedBox(width: 12),
+
+                                    // Horizontal Quick-Add Belt
+                                    if (crossSellItems.isNotEmpty)
+                                      Expanded(
+                                        child: ListView.builder(
+                                          scrollDirection: Axis.horizontal,
+                                          physics:
+                                              const BouncingScrollPhysics(),
+                                          itemCount: crossSellItems.length,
+                                          itemBuilder: (context, index) {
+                                            final crossItem =
+                                                crossSellItems[index];
+                                            return Padding(
+                                              padding: const EdgeInsets.only(
+                                                right: 8,
+                                              ),
+                                              child: InkWell(
+                                                onTap: () {
+                                                  _updateCart(
+                                                    crossItem.name,
+                                                    crossItem.price,
+                                                    1,
+                                                  );
+                                                  setModalState(() {});
+                                                },
+                                                borderRadius:
+                                                    BorderRadius.circular(20),
+                                                child: Container(
+                                                  padding:
+                                                      const EdgeInsets.symmetric(
+                                                        horizontal: 14,
+                                                      ),
+                                                  alignment: Alignment.center,
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.white,
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          20,
+                                                        ),
+                                                    border: Border.all(
+                                                      color:
+                                                          Colors.grey.shade300,
+                                                    ),
+                                                  ),
+                                                  child: Row(
+                                                    mainAxisSize:
+                                                        MainAxisSize.min,
+                                                    children: [
+                                                      Text(
+                                                        "${crossItem.name} • ₹${crossItem.price.toStringAsFixed(0)}",
+                                                        style:
+                                                            GoogleFonts.poppins(
+                                                              fontSize: 12,
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .w600,
+                                                              color: Colors
+                                                                  .black87,
+                                                            ),
+                                                      ),
+                                                      const SizedBox(width: 6),
+                                                      const Icon(
+                                                        Icons.add_circle,
+                                                        size: 14,
+                                                        color:
+                                                            Colors.deepPurple,
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ),
+                                            );
+                                          },
+                                        ),
+                                      ),
+                                  ],
                                 ),
                               ),
-                            ],
-                          ),
-                        ),
-                      )
-                    else
-                      SizedBox(
-                        height: 45,
-                        child: TextField(
-                          autofocus: overallNote.isEmpty,
-                          onChanged: (val) => overallNote = val,
-                          onTapOutside: (_) {
-                            FocusManager.instance.primaryFocus?.unfocus();
-                            if (overallNote.trim().isEmpty) {
-                              setModalState(() => showOverallNote = false);
-                            }
-                          },
-                          onSubmitted: (val) {
-                            if (val.trim().isEmpty) {
-                              setModalState(() => showOverallNote = false);
-                            }
-                          },
-                          controller: TextEditingController(text: overallNote)
-                            ..selection = TextSelection.fromPosition(
-                              TextPosition(offset: overallNote.length),
+
+                              // --- STATE 2: TEXTFIELD WTIH CLOSE BUTTON ---
+                              secondChild: SizedBox(
+                                height:
+                                    40, // 🌟 FIX: Exact same 40px height, isliye 1px ka bhi jump nahi hoga!
+                                child: TextField(
+                                  autofocus: overallNote.isEmpty,
+                                  onChanged: (val) => overallNote = val,
+                                  onTapOutside: (_) {
+                                    FocusManager.instance.primaryFocus
+                                        ?.unfocus();
+                                    if (overallNote.trim().isEmpty)
+                                      setModalState(
+                                        () => showOverallNote = false,
+                                      );
+                                  },
+                                  onSubmitted: (val) {
+                                    if (val.trim().isEmpty)
+                                      setModalState(
+                                        () => showOverallNote = false,
+                                      );
+                                  },
+                                  controller:
+                                      TextEditingController(text: overallNote)
+                                        ..selection =
+                                            TextSelection.fromPosition(
+                                              TextPosition(
+                                                offset: overallNote.length,
+                                              ),
+                                            ),
+                                  style: GoogleFonts.poppins(fontSize: 13),
+                                  decoration: InputDecoration(
+                                    hintText: "Overall instructions...",
+                                    prefixIcon: const Icon(
+                                      Icons.comment_outlined,
+                                      size: 18,
+                                      color: Colors.black54,
+                                    ),
+                                    suffixIcon: GestureDetector(
+                                      onTap: () {
+                                        setModalState(() {
+                                          overallNote = "";
+                                          showOverallNote =
+                                              false; // X dabane par text clear aur wapas fade to button
+                                        });
+                                      },
+                                      child: const Icon(
+                                        Icons.close,
+                                        size: 18,
+                                        color: Colors.black45,
+                                      ),
+                                    ),
+                                    filled: true,
+                                    fillColor: Colors.black.withOpacity(0.05),
+                                    contentPadding: const EdgeInsets.only(
+                                      left: 15,
+                                      right: 5,
+                                    ),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                      borderSide: BorderSide.none,
+                                    ),
+                                  ),
+                                ),
+                              ),
                             ),
-                          style: const TextStyle(fontSize: 13),
-                          decoration: InputDecoration(
-                            hintText: "Overall instructions for the chef?",
-                            prefixIcon: const Icon(
-                              Icons.comment_outlined,
-                              size: 18,
-                              color: Colors.black54,
-                            ),
-                            filled: true,
-                            fillColor: Colors.black.withAlpha(10),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 15,
-                            ),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide.none,
-                            ),
-                          ),
-                        ),
-                      ),
+                          ],
+                        );
+                      },
+                    ),
                     const SizedBox(height: 15),
                     // Slim Place Order Premium Area
                     Container(
@@ -960,7 +1409,8 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
         children: [
           // 1. TOP HEADER SECTION (Gradient, Rings, Floating Icons, Name)
           Expanded(
-            flex: 11,
+            flex:
+                13, // 🌟 FIX: Flex 11 se 13 kiya taaki purple background aur neeche tak aaye
             child: Stack(
               clipBehavior: Clip.none,
               children: [
@@ -983,6 +1433,99 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                           end: Alignment.bottomCenter,
                         ),
                       ),
+                      // 🌟 NAYA FIX: Image ki jagah pure Flutter code se scattered Doodles!
+                      child: Stack(
+                        children: [
+                          Positioned(
+                            top: 40,
+                            left: 30,
+                            child: Icon(
+                              Icons.fastfood_rounded,
+                              size: 50,
+                              color: Colors.white.withOpacity(
+                                0.15,
+                              ), // 🌟 FIX: Opacity increased for visibility
+                            ),
+                          ),
+                          Positioned(
+                            top: 90,
+                            right: 40,
+                            child: Icon(
+                              Icons.local_pizza_rounded,
+                              size: 60,
+                              color: Colors.white.withOpacity(
+                                0.12,
+                              ), // 🌟 FIX: Opacity increased
+                            ),
+                          ),
+                          Positioned(
+                            top: 180,
+                            left: 60,
+                            child: Icon(
+                              Icons.local_cafe_rounded,
+                              size: 45,
+                              color: Colors.white.withOpacity(
+                                0.14,
+                              ), // 🌟 FIX: Opacity increased
+                            ),
+                          ),
+                          Positioned(
+                            bottom: 100,
+                            right: 60,
+                            child: Icon(
+                              Icons.icecream_rounded,
+                              size: 55,
+                              color: Colors.white.withOpacity(
+                                0.16,
+                              ), // 🌟 FIX: Opacity increased
+                            ),
+                          ),
+                          Positioned(
+                            bottom: 50,
+                            left: 40,
+                            child: Icon(
+                              Icons.ramen_dining_rounded,
+                              size: 65,
+                              color: Colors.white.withOpacity(
+                                0.12,
+                              ), // 🌟 FIX: Opacity increased
+                            ),
+                          ),
+                          Positioned(
+                            top: 30,
+                            right: 140,
+                            child: Icon(
+                              Icons.local_drink_rounded,
+                              size: 40,
+                              color: Colors.white.withOpacity(
+                                0.15,
+                              ), // 🌟 FIX: Opacity increased
+                            ),
+                          ),
+                          Positioned(
+                            bottom: 30,
+                            right: 140,
+                            child: Icon(
+                              Icons.lunch_dining_rounded,
+                              size: 45,
+                              color: Colors.white.withOpacity(
+                                0.13,
+                              ), // 🌟 FIX: Opacity increased
+                            ),
+                          ),
+                          Positioned(
+                            bottom: 150,
+                            left: -10,
+                            child: Icon(
+                              Icons.cake_rounded,
+                              size: 50,
+                              color: Colors.white.withOpacity(
+                                0.14,
+                              ), // 🌟 FIX: Opacity increased
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -995,12 +1538,43 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                       // Concentric rings & Floating Icons
                       Center(
                         child: SizedBox(
-                          width: 220,
-                          height: 160,
+                          width:
+                              240, // 🌟 FIX: Outer rings ko space dene ke liye 240 kiya
+                          height: 240, // 🌟 FIX: Height bhi 240 kar di
                           child: Stack(
                             clipBehavior: Clip.none,
                             children: [
-                              // Rings
+                              // 🌟 NAYA FIX: 4th Outer Ring (Deepest Ripple)
+                              Center(
+                                child: Container(
+                                  width: 240,
+                                  height: 240,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: Colors.white.withAlpha(
+                                        15,
+                                      ), // Ekdum light outer ring
+                                      width: 1.0,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              // 🌟 NAYA FIX: 3rd Outer Ring
+                              Center(
+                                child: Container(
+                                  width: 200,
+                                  height: 200,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: Colors.white.withAlpha(25),
+                                      width: 1.2,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              // 2nd Ring
                               Center(
                                 child: Container(
                                   width: 160,
@@ -1014,6 +1588,7 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                                   ),
                                 ),
                               ),
+                              // 1st Ring (Logo border)
                               Center(
                                 child: Container(
                                   width: 120,
@@ -1030,8 +1605,10 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                               // 🌟 DYNAMIC LOGO IN CENTER RING 🌟
                               Center(
                                 child: Container(
-                                  width: 80,
-                                  height: 80,
+                                  width:
+                                      120, // 🌟 FIX: 80 se 120 kiya to match 1st outer ring exactly
+                                  height:
+                                      120, // 🌟 FIX: 80 se 120 kiya to match 1st outer ring exactly
                                   decoration: BoxDecoration(
                                     shape: BoxShape.circle,
                                     color: Colors.white,
@@ -1582,13 +2159,131 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
   // 2. COMPACT PREMIUM MENU
   // ==========================================
   Widget _buildMenuTab() {
-    final List<String> categories = dynamicCategories;
-    final List<MenuItem> filteredItems = filteredDummyItems;
+    // 🌟 TEMPORARY DUMMY DATA FOR UI TESTING (CLEAN AND FIXED) 🌟
+    List<String> categories = [
+      'All', // 🌟 FIX: Moved 'All' to the front
+      'Starters',
+      'Mains',
+      'Beverages',
+      'Desserts',
+    ];
+    List<MenuItem> filteredItems = [
+      MenuItem(
+        id: "dummy_1", // 🌟 FIX: ID is now included
+        name: "Crispy Veg Spring Roll",
+        category: "Starters",
+        price: 180.0,
+        isVeg: true,
+        description:
+            "Crispy golden rolls filled with spiced vegetables and glass noodles.",
+        variants: {},
+        addOns: {"Extra Dip": 20, "Spicy Mayo": 30},
+      ),
+      MenuItem(
+        id: "dummy_2",
+        name: "Paneer Tikka Shashlik",
+        category: "Starters",
+        price: 260.0,
+        isVeg: true,
+        description:
+            "Cottage cheese marinated in yogurt and spices, grilled to perfection on a tandoor.",
+        variants: {"Half": 150, "Full": 260},
+        addOns: {},
+      ),
+      MenuItem(
+        id: "dummy_3",
+        name: "Chicken Spicy Wings",
+        category: "Starters",
+        price: 290.0,
+        isVeg: false,
+        description:
+            "Deep fried chicken wings tossed in our signature hot and spicy sauce.",
+        variants: {},
+        addOns: {},
+      ),
+      MenuItem(
+        id: "dummy_4",
+        name: "Authentic Margherita Pizza",
+        category: "Mains",
+        price: 350.0,
+        isVeg: true,
+        description:
+            "Classic delight with 100% real mozzarella cheese and fresh basil leaves.",
+        variants: {"Medium": 350, "Large": 500},
+        addOns: {"Extra Cheese": 60, "Jalapenos": 40},
+      ),
+      MenuItem(
+        id: "dummy_5",
+        name: "Creamy Alfredo Pasta",
+        category: "Mains",
+        price: 280.0,
+        isVeg: true,
+        description:
+            "Penne pasta in a rich and creamy white sauce tossed with exotic veggies.",
+        variants: {},
+        addOns: {"Grilled Chicken": 80, "Garlic Bread (2Pc)": 60},
+      ),
+      MenuItem(
+        id: "dummy_6",
+        name: "Punjabi Butter Chicken",
+        category: "Mains",
+        price: 380.0,
+        isVeg: false,
+        description:
+            "Tender chicken cooked in a rich, buttery and creamy tomato gravy.",
+        variants: {"Half": 220, "Full": 380},
+        addOns: {"Butter Naan": 45, "Lachha Paratha": 55},
+      ),
+      MenuItem(
+        id: "dummy_7",
+        name: "Classic Virgin Mojito",
+        category: "Beverages",
+        price: 150.0,
+        isVeg: true,
+        description:
+            "Refreshing blend of fresh mint leaves, lemon, and sparkling water.",
+        variants: {},
+        addOns: {},
+      ),
+      MenuItem(
+        id: "dummy_8",
+        name: "Thick Cold Coffee",
+        category: "Beverages",
+        price: 180.0,
+        isVeg: true,
+        description:
+            "Creamy, rich blended iced coffee topped with chocolate syrup.",
+        variants: {},
+        addOns: {"Vanilla Scoop": 50},
+      ),
+      MenuItem(
+        id: "dummy_9",
+        name: "Sizzling Brownie",
+        category: "Desserts",
+        price: 220.0,
+        isVeg: true,
+        description:
+            "Hot chocolate brownie served on a sizzler plate with vanilla ice cream.",
+        variants: {},
+        addOns: {"Extra Chocolate Sauce": 30},
+      ),
+      MenuItem(
+        id: "dummy_10",
+        name: "Classic Tiramisu",
+        category: "Desserts",
+        price: 250.0,
+        isVeg: true,
+        description: "Authentic coffee-flavoured Italian dessert.",
+        variants: {},
+        addOns: {},
+      ),
+    ];
 
     // Dynamically update itemPrices map for the cart logic to keep working
-    for (var item in dummyItems) {
+    for (var item in filteredItems) {
       itemPrices[item.name] = item.price;
     }
+    // 🌟 TEMPORARY DUMMY DATA ENDS HERE 🌟
 
     return Column(
       children: [
@@ -1682,7 +2377,7 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
           ),
         ),
 
-        // 3. Items List
+        // 3. Grouped Items List (Saffron Bistro Premium Style)
         Expanded(
           child: filteredItems.isEmpty
               ? const Center(
@@ -1692,363 +2387,60 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                   ),
                 )
               : ListView.builder(
-                  padding: EdgeInsets.only(
-                    left: 15,
-                    right: 15,
-                    bottom: cartTotal > 0 ? 100 : 20,
-                  ),
+                  padding: EdgeInsets.only(bottom: cartTotal > 0 ? 100 : 20),
                   physics: const BouncingScrollPhysics(),
-                  addAutomaticKeepAlives:
-                      true, // 🌟 NAYA: Scrolling ko ekdum smooth karega
-                  itemCount: filteredItems.length,
-                  itemBuilder: (ctx, i) {
-                    final item = filteredItems[i];
-                    final int qty = cart[item.name] ?? 0;
+                  addAutomaticKeepAlives: true,
+                  itemCount: categories
+                      .length, // 🌟 NAYA LOGIC: Ab list Items pe nahi, Categories pe chalegi
+                  itemBuilder: (ctx, catIndex) {
+                    String catName = categories[catIndex];
+                    if (catName == 'All')
+                      return const SizedBox.shrink(); // Ignore 'All' pill
 
-                    return Container(
-                      margin: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 5, // Vertical margin aur kam kiya
-                      ),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 10,
-                      ), // Padding thodi tight ki
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(
-                          10,
-                        ), // Corners ko sharp (rectangular) kiya
-                        border: Border.all(
-                          color: Colors.black.withValues(alpha: 0.03),
+                    // Agar user ne koi specific category select ki hai, aur yeh wo nahi hai, toh skip karo
+                    if (selectedCategory != 'All' &&
+                        selectedCategory != catName) {
+                      return const SizedBox.shrink();
+                    }
+
+                    // Is category ke items nikal lo
+                    List<dynamic> catItems = filteredItems.where((item) {
+                      try {
+                        // Safe check for category property
+                        return item.category ==
+                            catName; // 🌟 FIX: Removed undefined getters
+                      } catch (e) {
+                        return false;
+                      }
+                    }).toList();
+
+                    // Agar is category mein koi item nahi hai, toh header mat dikhao
+                    if (catItems.isEmpty) return const SizedBox.shrink();
+
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // 🌟 PREMIUM CATEGORY HEADER (e.g., Starters)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(25, 25, 20, 5),
+                          child: Text(
+                            catName,
+                            style: GoogleFonts.cormorantGaramond(
+                              // 🌟 FIX: Category Header premium serif ho gaya
+                              fontSize:
+                                  28, // Saffron Bistro jaisa bold aur bada feel
+                              fontWeight: FontWeight.w900,
+                              color: const Color(0xFF1A1B2F),
+                            ),
+                          ),
                         ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.04),
-                            blurRadius: 15,
-                            spreadRadius: 1,
-                            offset: const Offset(0, 5),
-                          ),
-                        ],
-                      ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // ----------------------------------------
-                          // 1. LEFT SIDE: DETAILS (Expanded)
-                          Expanded(
-                            child: Builder(
-                              builder: (context) {
-                                bool isExpanded =
-                                    false; // Local state for dropdown
-                                return StatefulBuilder(
-                                  builder: (context, setLocalState) {
-                                    return Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
-                                          children: [
-                                            // Veg/Non-veg indicator
-                                            Container(
-                                              width: 14,
-                                              height: 14,
-                                              decoration: BoxDecoration(
-                                                border: Border.all(
-                                                  color: item.isVeg
-                                                      ? Colors.green
-                                                      : Colors.red,
-                                                  width: 1.5,
-                                                ),
-                                                borderRadius:
-                                                    BorderRadius.circular(4),
-                                              ),
-                                              child: Center(
-                                                child: Icon(
-                                                  Icons.circle,
-                                                  size: 6,
-                                                  color: item.isVeg
-                                                      ? Colors.green
-                                                      : Colors.red,
-                                                ),
-                                              ),
-                                            ),
-                                            const SizedBox(width: 6),
-                                            Expanded(
-                                              child: Text(
-                                                item.name,
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: const TextStyle(
-                                                  fontWeight: FontWeight.w900,
-                                                  fontSize: 15,
-                                                  color: Color(0xFF1A1B2F),
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          "₹${item.price.toStringAsFixed(0)}",
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.w900,
-                                            fontSize: 14,
-                                            color: Colors.deepPurple,
-                                          ),
-                                        ),
-
-                                        // Description (Conditional)
-                                        if (item.description != null &&
-                                            item.description!.isNotEmpty) ...[
-                                          const SizedBox(height: 6),
-                                          Text(
-                                            item.description!,
-                                            maxLines: isExpanded
-                                                ? null
-                                                : 1, // 1 line if hidden, full if expanded
-                                            overflow: isExpanded
-                                                ? TextOverflow.visible
-                                                : TextOverflow.ellipsis,
-                                            style: TextStyle(
-                                              fontSize: 11,
-                                              color: Colors.grey.shade600,
-                                              fontWeight: FontWeight.w500,
-                                            ),
-                                          ),
-                                        ],
-
-                                        // Calories & Weight Row (Conditional - Hidden by default)
-                                        if (isExpanded &&
-                                            ((item.calories != null &&
-                                                    item
-                                                        .calories!
-                                                        .isNotEmpty) ||
-                                                (item.weight != null &&
-                                                    item
-                                                        .weight!
-                                                        .isNotEmpty))) ...[
-                                          const SizedBox(height: 8),
-                                          Row(
-                                            children: [
-                                              if (item.calories != null &&
-                                                  item
-                                                      .calories!
-                                                      .isNotEmpty) ...[
-                                                const Icon(
-                                                  Icons
-                                                      .local_fire_department_rounded,
-                                                  size: 12,
-                                                  color: Colors.orange,
-                                                ),
-                                                const SizedBox(width: 2),
-                                                Text(
-                                                  item.calories!,
-                                                  style: const TextStyle(
-                                                    fontSize: 10,
-                                                    fontWeight: FontWeight.bold,
-                                                    color: Colors.black38,
-                                                  ),
-                                                ),
-                                                if (item.weight != null &&
-                                                    item.weight!.isNotEmpty)
-                                                  const SizedBox(width: 10),
-                                              ],
-                                              if (item.weight != null &&
-                                                  item.weight!.isNotEmpty) ...[
-                                                const Icon(
-                                                  Icons.scale_rounded,
-                                                  size: 12,
-                                                  color: Colors.blue,
-                                                ),
-                                                const SizedBox(width: 2),
-                                                Text(
-                                                  item.weight!,
-                                                  style: const TextStyle(
-                                                    fontSize: 10,
-                                                    fontWeight: FontWeight.bold,
-                                                    color: Colors.black38,
-                                                  ),
-                                                ),
-                                              ],
-                                            ],
-                                          ),
-                                        ],
-
-                                        // Read More / Read Less Toggle
-                                        if ((item.description != null &&
-                                                item.description!.isNotEmpty) ||
-                                            (item.calories != null &&
-                                                item.calories!.isNotEmpty) ||
-                                            (item.weight != null &&
-                                                item.weight!.isNotEmpty)) ...[
-                                          const SizedBox(height: 4),
-                                          GestureDetector(
-                                            onTap: () {
-                                              setLocalState(() {
-                                                isExpanded = !isExpanded;
-                                              });
-                                            },
-                                            child: Text(
-                                              isExpanded
-                                                  ? "Read less"
-                                                  : "Read more...",
-                                              style: const TextStyle(
-                                                fontSize: 11,
-                                                fontWeight: FontWeight.bold,
-                                                color: Colors.deepPurple,
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ],
-                                    );
-                                  },
-                                );
-                              },
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-
-                          // ----------------------------------------
-                          // 2. RIGHT SIDE: IMAGE & OVERLAPPING BUTTON (Stack)
-                          // ----------------------------------------
-                          SizedBox(
-                            width: 95,
-                            height:
-                                95, // Height kam ki taaki card overall patla ho jaye
-                            child: Stack(
-                              clipBehavior: Clip.none,
-                              children: [
-                                // Top Layer: Image
-                                Positioned(
-                                  top: 0,
-                                  left: 5,
-                                  right: 5,
-                                  child: ClipRRect(
-                                    borderRadius: BorderRadius.circular(16),
-                                    child: getSmartIcon(item.name),
-                                  ),
-                                ),
-                                // Bottom Layer: Overlapping ADD / Qty Button
-                                Positioned(
-                                  bottom: 0,
-                                  left: 0,
-                                  right: 0,
-                                  child: Center(
-                                    child: qty == 0
-                                        ? // Premium ADD Button
-                                          InkWell(
-                                            onTap: () {
-                                              if (item.variants.isNotEmpty ||
-                                                  item.addOns.isNotEmpty) {
-                                                showVariantsPopup(item);
-                                              } else {
-                                                _updateCart(
-                                                  item.name,
-                                                  item.price,
-                                                  1,
-                                                );
-                                              }
-                                            },
-                                            borderRadius: BorderRadius.circular(
-                                              20,
-                                            ),
-                                            child: Container(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                    horizontal: 22,
-                                                    vertical: 8,
-                                                  ),
-                                              decoration: BoxDecoration(
-                                                color: Colors.white,
-                                                border: Border.all(
-                                                  color: Colors.deepPurple,
-                                                  width: 1.2,
-                                                ),
-                                                borderRadius: BorderRadius.circular(
-                                                  8, // Pill shape se cornered rectangle banaya
-                                                ),
-                                              ),
-                                              child: const Text(
-                                                "ADD",
-                                                style: TextStyle(
-                                                  color: Colors
-                                                      .deepPurple, // Purple text instead of white
-                                                  fontWeight: FontWeight.w900,
-                                                  fontSize: 12,
-                                                ),
-                                              ),
-                                            ),
-                                          )
-                                        : // Premium +/- Button
-                                          Container(
-                                            decoration: BoxDecoration(
-                                              color: Colors.white,
-                                              borderRadius: BorderRadius.circular(
-                                                8,
-                                              ), // Pill shape se cornered rectangle banaya
-                                              border: Border.all(
-                                                color: Colors.deepPurple
-                                                    .withValues(alpha: 0.3),
-                                              ),
-                                            ),
-                                            child: Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                IconButton(
-                                                  icon: const Icon(
-                                                    Icons.remove,
-                                                    color: Colors.deepPurple,
-                                                    size: 16,
-                                                  ),
-                                                  padding: EdgeInsets.zero,
-                                                  constraints:
-                                                      const BoxConstraints(
-                                                        minWidth: 28,
-                                                      ),
-                                                  onPressed: () => _updateCart(
-                                                    item.name,
-                                                    item.price,
-                                                    -1,
-                                                  ),
-                                                ),
-                                                Text(
-                                                  "$qty",
-                                                  style: const TextStyle(
-                                                    color: Colors.black87,
-                                                    fontWeight: FontWeight.bold,
-                                                    fontSize: 14,
-                                                  ),
-                                                ),
-                                                IconButton(
-                                                  icon: const Icon(
-                                                    Icons.add,
-                                                    color: Colors.deepPurple,
-                                                    size: 16,
-                                                  ),
-                                                  padding: EdgeInsets.zero,
-                                                  constraints:
-                                                      const BoxConstraints(
-                                                        minWidth: 28,
-                                                      ),
-                                                  onPressed: () => _updateCart(
-                                                    item.name,
-                                                    item.price,
-                                                    1,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ).animate().fadeIn(delay: Duration(milliseconds: i * 50)).slideY(begin: 0.1);
+                        // 🌟 ITEMS RENDERED VIA NEW FUNCTION
+                        ...catItems.map((item) {
+                          final int qty = cart[item.name] ?? 0;
+                          return _buildPremiumItemCard(item, qty);
+                        }).toList(),
+                      ],
+                    );
                   },
                 ),
         ),
@@ -2284,7 +2676,10 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
           Expanded(
             child: SingleChildScrollView(
               child: Container(
-                padding: const EdgeInsets.all(30),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 24,
+                ), // 🌟 FIX: Horizontal padding kam ki taaki text ko saans aaye
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(30),
@@ -2490,24 +2885,39 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                               ),
                             ],
 
-                            const Divider(height: 25, color: Colors.black12),
+                            const Divider(
+                              height: 20,
+                              color: Colors.black12,
+                            ), // 🌟 FIX: Tighter height
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              crossAxisAlignment: CrossAxisAlignment.end,
                               children: [
-                                const Text(
-                                  "Grand Total",
-                                  style: TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.w900,
-                                    color: Colors.black87,
+                                Expanded(
+                                  // 🌟 FIX: Label ko extra space lene diya
+                                  child: Text(
+                                    "Grand Total",
+                                    style: GoogleFonts.poppins(
+                                      fontSize:
+                                          18, // 🌟 FIX: Slightly scaled down
+                                      fontWeight: FontWeight.w800,
+                                      color: Colors.black87,
+                                    ),
                                   ),
                                 ),
-                                Text(
-                                  "₹${grandTotal.toStringAsFixed(2)}",
-                                  style: const TextStyle(
-                                    fontSize: 24,
-                                    fontWeight: FontWeight.w900,
-                                    color: Colors.deepPurple,
+                                Flexible(
+                                  // 🌟 FIX: Price ke liye flexible boundary
+                                  child: FittedBox(
+                                    // 🌟 FIX: Agar amount bada hoga (10,000+), toh automatically chota ho jayega bina over flow kiye
+                                    fit: BoxFit.scaleDown,
+                                    child: Text(
+                                      "₹${grandTotal.toStringAsFixed(2)}",
+                                      style: GoogleFonts.poppins(
+                                        fontSize: 22,
+                                        fontWeight: FontWeight.w900,
+                                        color: Colors.deepPurple,
+                                      ),
+                                    ),
                                   ),
                                 ),
                               ],
@@ -2560,7 +2970,9 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
       appBar: (currentStep == 0 || currentStep == 4)
           ? null
           : PreferredSize(
-              preferredSize: const Size.fromHeight(80),
+              preferredSize: const Size.fromHeight(
+                60,
+              ), // 🌟 FIX: Height reduced
               child: StreamBuilder<DocumentSnapshot>(
                 stream: FirebaseFirestore.instance
                     .collection('restaurants')
@@ -2584,7 +2996,7 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                   }
 
                   return AppBar(
-                    toolbarHeight: 80,
+                    toolbarHeight: 60, // 🌟 FIX: Toolbar height matched
                     backgroundColor: Colors.white,
                     elevation: 0,
                     surfaceTintColor: Colors.white,
@@ -2634,15 +3046,18 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                                 displayName,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: Color(0xFF1A1B2F),
+                                style: GoogleFonts.cormorantGaramond(
+                                  // 🌟 FIX: Hotel Name premium serif ho gaya
+                                  color: const Color(0xFF1A1B2F),
                                   fontWeight: FontWeight.w900,
-                                  fontSize: 20,
+                                  fontSize:
+                                      24, // Size thoda increase kiya luxury feel ke liye
                                 ),
                               ),
                               Text(
                                 "Dine. Enjoy. Repeat.",
                                 style: TextStyle(
+                                  // 🌟 NOTE: Yeh global Poppins automatically uthayega
                                   fontSize: 11,
                                   fontWeight: FontWeight.w700,
                                   color: Colors.grey.shade500,
@@ -2685,30 +3100,14 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                                   size: 18,
                                 ),
                                 const SizedBox(width: 6),
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Text(
-                                      "TABLE",
-                                      style: TextStyle(
-                                        fontSize: 8,
-                                        fontWeight: FontWeight.w800,
-                                        color: Colors.grey.shade500,
-                                        letterSpacing: 0.5,
-                                      ),
-                                    ),
-                                    Text(
-                                      widget.tableId
-                                          .replaceAll('table_', '')
-                                          .replaceAll('t', ''),
-                                      style: const TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w900,
-                                        color: Color(0xFF1A1B2F),
-                                      ),
-                                    ),
-                                  ],
+                                // 🌟 FIX: Column ko hataya aur single line Text banaya
+                                Text(
+                                  "Table : ${widget.tableId.replaceAll('table_', '').replaceAll('t', '')}",
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w800,
+                                    color: const Color(0xFF1A1B2F),
+                                  ),
                                 ),
                               ],
                             ),
@@ -3007,13 +3406,7 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                       ),
                       const SizedBox(height: 8),
                       Container(
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          border: Border.all(
-                            color: Colors.black.withValues(alpha: 0.08),
-                          ),
-                          borderRadius: BorderRadius.circular(12),
-                        ), // 🌟 FIX: BoxDecoration correctly closed here
+                        // 🌟 FIX: Removed outer BoxDecoration to eliminate the double-border clutter
                         child: Column(
                           // 🌟 FIX: Cleaned up the 'child' typo
                           children: item.variants.entries.map((entry) {
@@ -3107,13 +3500,7 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                       ),
                       const SizedBox(height: 8),
                       Container(
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          border: Border.all(
-                            color: Colors.black.withValues(alpha: 0.08),
-                          ), // Premium light border
-                          borderRadius: BorderRadius.circular(12),
-                        ),
+                        // 🌟 FIX: Removed outer BoxDecoration here as well
                         child: Column(
                           children: item.addOns.entries.map((entry) {
                             bool isSelected = selectedAddOns.contains(

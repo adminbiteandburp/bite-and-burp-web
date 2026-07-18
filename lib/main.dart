@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'dart:async';
+import 'package:google_fonts/google_fonts.dart';
 
 import 'firebase_options.dart';
 import 'views/customer_menu_view.dart';
@@ -55,6 +56,9 @@ class BiteAndBurpWebApp extends StatelessWidget {
       ],
     );
 
+    // 🌟 FIX: File ke ekdum top par imports ke sath yeh line zaroor dalna:
+    // import 'package:google_fonts/google_fonts.dart';
+
     return MaterialApp.router(
       debugShowCheckedModeBanner: false,
       title: 'Bite & Burp | Advanced POS Ecosystem',
@@ -64,11 +68,15 @@ class BiteAndBurpWebApp extends StatelessWidget {
         brightness: Brightness.light,
         scaffoldBackgroundColor: const Color(0xFFF8F9FE),
         primaryColor: Colors.deepPurple,
-        fontFamily: 'Inter',
+        // 🌟 FIX: Poori app ka global default font ab Poppins ho gaya hai
+        textTheme: GoogleFonts.poppinsTextTheme(ThemeData.light().textTheme),
+        primaryTextTheme: GoogleFonts.poppinsTextTheme(),
       ),
     );
   }
 }
+
+// =========================================================
 
 // =========================================================
 // 🌟 1. SPLASH SCREEN
