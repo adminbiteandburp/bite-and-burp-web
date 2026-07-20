@@ -1966,21 +1966,42 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                                       }
                                       return logoUrl.isNotEmpty
                                           ? ClipOval(
-                                              child: Image.network(
-                                                logoUrl,
-                                                fit: BoxFit.cover,
-                                                errorBuilder: (c, e, s) =>
-                                                    const Center(
-                                                      child: Icon(
-                                                        Icons
-                                                            .restaurant_rounded,
-                                                        color: Color(
-                                                          0xFF673AB7,
-                                                        ),
-                                                        size: 38,
+                                              child:
+                                                  logoUrl.startsWith(
+                                                    'data:image',
+                                                  )
+                                                  ? Image.memory(
+                                                      base64Decode(
+                                                        logoUrl.split(',').last,
                                                       ),
+                                                      fit: BoxFit.cover,
+                                                      errorBuilder: (c, e, s) =>
+                                                          const Center(
+                                                            child: Icon(
+                                                              Icons
+                                                                  .restaurant_rounded,
+                                                              color: Color(
+                                                                0xFF673AB7,
+                                                              ),
+                                                              size: 38,
+                                                            ),
+                                                          ),
+                                                    )
+                                                  : Image.network(
+                                                      logoUrl,
+                                                      fit: BoxFit.cover,
+                                                      errorBuilder: (c, e, s) =>
+                                                          const Center(
+                                                            child: Icon(
+                                                              Icons
+                                                                  .restaurant_rounded,
+                                                              color: Color(
+                                                                0xFF673AB7,
+                                                              ),
+                                                              size: 38,
+                                                            ),
+                                                          ),
                                                     ),
-                                              ),
                                             )
                                           : const Center(
                                               child: Icon(
@@ -3221,24 +3242,47 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                         ClipRRect(
                           borderRadius: BorderRadius.circular(12),
                           child: logoUrl.isNotEmpty
-                              ? Image.network(
-                                  logoUrl,
-                                  width: 45,
-                                  height: 45,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (c, e, s) => Container(
-                                    padding: const EdgeInsets.all(8),
-                                    decoration: BoxDecoration(
-                                      color: Colors.deepPurple,
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    child: const Icon(
-                                      Icons.restaurant_rounded,
-                                      color: Colors.white,
-                                      size: 24,
-                                    ),
-                                  ),
-                                )
+                              ? (logoUrl.startsWith('data:image')
+                                    ? Image.memory(
+                                        base64Decode(logoUrl.split(',').last),
+                                        width: 45,
+                                        height: 45,
+                                        fit: BoxFit.cover,
+                                        errorBuilder: (c, e, s) => Container(
+                                          padding: const EdgeInsets.all(8),
+                                          decoration: BoxDecoration(
+                                            color: Colors.deepPurple,
+                                            borderRadius: BorderRadius.circular(
+                                              12,
+                                            ),
+                                          ),
+                                          child: const Icon(
+                                            Icons.restaurant_rounded,
+                                            color: Colors.white,
+                                            size: 24,
+                                          ),
+                                        ),
+                                      )
+                                    : Image.network(
+                                        logoUrl,
+                                        width: 45,
+                                        height: 45,
+                                        fit: BoxFit.cover,
+                                        errorBuilder: (c, e, s) => Container(
+                                          padding: const EdgeInsets.all(8),
+                                          decoration: BoxDecoration(
+                                            color: Colors.deepPurple,
+                                            borderRadius: BorderRadius.circular(
+                                              12,
+                                            ),
+                                          ),
+                                          child: const Icon(
+                                            Icons.restaurant_rounded,
+                                            color: Colors.white,
+                                            size: 24,
+                                          ),
+                                        ),
+                                      ))
                               : Container(
                                   padding: const EdgeInsets.all(8),
                                   decoration: BoxDecoration(
