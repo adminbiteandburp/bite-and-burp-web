@@ -932,8 +932,13 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
           .doc(widget.hotelId)
           .collection('live_orders')
           .add({
-            'tableId': widget.tableId,
-            'tableName': 'Table ${widget.tableId}',
+            // 🌟 BUG 4 FIX: POS App format match karne ke liye "Table " word ko clean kar diya
+            'tableId': widget.tableId
+                .toString()
+                .replaceAll('Table ', '')
+                .trim(),
+            'tableName':
+                'Table ${widget.tableId.toString().replaceAll('Table ', '').trim()}',
             'customerName': customerName, // Session data pass
             'customerPhone': customerPhone, // Session data pass
             'totalAmount': cartTotal,
@@ -3560,6 +3565,10 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
 
   // 🌟 PREMIUM VARIANTS & ADD-ONS POPUP
   void showVariantsPopup(MenuItem item) {
+    // 🌟 BUG 1 FIX: Har baar naya item kholne par purane addons/variants clear kar do
+    selectedVariant = null;
+    selectedAddOns = [];
+
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.white,
@@ -3814,11 +3823,26 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                           ),
                         ),
                         onPressed: () {
+                          // 🌟 BUG 2 FIX: Mandatory Variant Validation check
+                          if (item.variants.isNotEmpty &&
+                              selectedVariant == null) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  "Bhai pehle ek variant toh select karo! 😅",
+                                ),
+                              ),
+                            );
+                            return; // Yahan se execution rok do
+                          }
+
                           double finalPrice = item.price;
                           String uniqueCartKey = item.name;
 
                           if (selectedVariant != null) {
-                            finalPrice += item.variants[selectedVariant] ?? 0.0;
+                            // 🌟 BUG 3 FIX: "+=" ko hatakar "=" kar diya (No Double Price Counting)
+                            finalPrice =
+                                item.variants[selectedVariant] ?? item.price;
                             uniqueCartKey += " - $selectedVariant";
                           }
                           if (selectedAddOns.isNotEmpty) {
