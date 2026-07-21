@@ -138,7 +138,12 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
             } else if (data['dietaryPref'] != null) {
               safeVeg =
                   data['dietaryPref'].toString().toLowerCase() != 'non-veg';
+            } else if (data['foodType'] != null) {
+              // 🌟 NAYA: Add foodType check just in case legacy items use it
+              safeVeg = data['foodType'].toString().toLowerCase() != 'non-veg';
             }
+
+            // 🌟 Category Name Resolution: Checks explicit name -> mapped name -> fallback
 
             // 🌟 Category Name Resolution: Checks explicit name -> mapped name -> fallback
             String rawId = (data['categoryId'] ?? '').toString();
@@ -2623,6 +2628,8 @@ class _CustomerMenuViewState extends State<CustomerMenuView> {
                   ),
                 )
               : ListView.builder(
+                  cacheExtent:
+                      3000, // 🌟 NAYA: Pre-render off-screen items to fix white screen
                   padding: EdgeInsets.only(bottom: cartTotal > 0 ? 100 : 20),
                   physics: const BouncingScrollPhysics(),
                   addAutomaticKeepAlives: true,

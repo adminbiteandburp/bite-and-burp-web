@@ -926,10 +926,13 @@ class _WaiterMenuViewState extends State<WaiterMenuView> {
               },
             ),
           ),
-
           // 2. LIVE ITEMS LIST (Filtered by Category)
           Expanded(
             child: ListView.builder(
+              cacheExtent:
+                  3000, // 🌟 NAYA: Pre-render off-screen items to fix white screen
+              addAutomaticKeepAlives:
+                  true, // 🌟 NAYA: RAM mein state save rakho
               padding: const EdgeInsets.only(
                 top: 5,
                 left: 15,
@@ -959,9 +962,14 @@ class _WaiterMenuViewState extends State<WaiterMenuView> {
                 String categoryType = data['type'] ?? data['category'] ?? 'Veg';
                 int qty = cart[name] ?? 0;
 
+                // 🌟 NAYA: Database ka actual Veg/Non-veg status read karo
                 bool isVeg =
-                    categoryType.toLowerCase().contains('veg') &&
-                    !categoryType.toLowerCase().contains('non');
+                    data['isVeg'] == true ||
+                    data['dietaryPref'] == 'Veg' ||
+                    data['foodType'] == 'Veg' ||
+                    (data['isVeg'] == null &&
+                        data['dietaryPref'] == null &&
+                        data['foodType'] == null); // Purani items Veg hongi
                 bool hasCustomization =
                     (data['variants'] != null &&
                         (data['variants'] as List).isNotEmpty) ||
@@ -1119,67 +1127,86 @@ class _WaiterMenuViewState extends State<WaiterMenuView> {
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
       // 🌟 FIX: Sleek Customer-Style Floating View Cart Banner
       floatingActionButton: cartTotal > 0
-          ? Container(
-              padding: const EdgeInsets.symmetric(horizontal: 15),
-              width: double.infinity,
-              height: 60,
-              child: ElevatedButton(
-                onPressed: () =>
-                    _showCartBottomSheet(), // 🌟 Opens verification sheet
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.deepPurple,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  elevation: 8,
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          "${cart.values.fold(0, (acc, qty) => acc + qty)} Items Added",
-                          style: GoogleFonts.poppins(
-                            color: Colors.white70,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        Text(
-                          "Total: ₹${cartTotal.toStringAsFixed(0)}",
-                          style: GoogleFonts.poppins(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 15,
-                          ),
-                        ),
-                      ],
-                    ),
-                    Row(
-                      children: [
-                        Text(
-                          "View Cart",
-                          style: GoogleFonts.poppins(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        const Icon(
-                          Icons.arrow_forward_ios_rounded,
-                          color: Colors.white,
-                          size: 16,
-                        ),
-                      ],
+          ? Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Container(
+                height: 65,
+                decoration: BoxDecoration(
+                  color: Colors.deepPurple,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.deepPurple.withAlpha(100),
+                      blurRadius: 20,
+                      offset: const Offset(0, 10),
                     ),
                   ],
                 ),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(20),
+                    onTap: () =>
+                        _showCartBottomSheet(), // 🌟 Opens verification sheet
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                "${cart.values.fold<int>(0, (acc, qty) => acc + (qty as int))} ITEMS",
+                                style: TextStyle(
+                                  color: Colors.white.withAlpha(200),
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 1,
+                                ),
+                              ),
+                              Text(
+                                "₹${cartTotal.toStringAsFixed(0)}",
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 18,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const Row(
+                            children: [
+                              Text(
+                                "VIEW CART",
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 14,
+                                  letterSpacing: 1,
+                                ),
+                              ),
+                              SizedBox(width: 8),
+                              Icon(
+                                Icons.shopping_bag_rounded,
+                                color: Colors.white,
+                                size: 18,
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
               ),
-            ).animate().slideY(begin: 1, duration: 300.ms)
+            ).animate().slideY(
+              begin: 1,
+              end: 0,
+              duration: 400.ms,
+              curve: Curves.easeOutCubic,
+            )
           : null,
     );
   }
