@@ -141,8 +141,14 @@ class _WaiterMenuViewState extends State<WaiterMenuView> {
 
     Map<String, int> safeItems = Map<String, int>.from(cart);
     double totalAmount = 0.0;
+    Map<String, dynamic> formattedItems = {};
     cart.forEach((key, value) {
       totalAmount += (itemPrices[key] ?? 0.0) * value;
+      formattedItems[key] = {
+        'quantity': value,
+        'price': itemPrices[key] ?? 0.0,
+        'note': '',
+      };
     });
 
     await FirebaseFirestore.instance
@@ -153,8 +159,9 @@ class _WaiterMenuViewState extends State<WaiterMenuView> {
           'tableId': selectedTable.replaceAll('Table ', '').trim(),
           'tableName': selectedTable,
           'totalAmount': totalAmount,
-          'items': safeItems,
-          'time': DateTime.now().toIso8601String(),
+          'items': formattedItems,
+          'time': FieldValue.serverTimestamp(),
+          'status': 'Auto-Accept',
         });
 
     setState(() {
